@@ -1,6 +1,79 @@
 // Cloudflare Workers - Indodax Market Analyzer - Full Stock Exchange Style
 const INDODAX_API_BASE = 'https://indodax.com/api';
 
+// Global storage for multi-timeframe candles
+let candleHistory = {
+    '15m': {}, '30m': {}, '1h': {}, '2h': {}, '4h': {},
+    '1d': {}, '3d': {}, '1w': {}, '2w': {}, '1m': {}
+};
+
+let lastCandleTime = {
+    '15m': {}, '30m': {}, '1h': {}, '2h': {}, '4h': {},
+    '1d': {}, '3d': {}, '1w': {}, '2w': {}, '1m': {}
+};
+
+// Convert timeframe string to milliseconds
+function timeframeToMs(tf) {
+    const map = {
+        '15m': 15 * 60 * 1000,
+        '30m': 30 * 60 * 1000,
+        '1h': 60 * 60 * 1000,
+        '2h': 2 * 60 * 60 * 1000,
+        '4h': 4 * 60 * 60 * 1000,
+        '1d': 24 * 60 * 60 * 1000,
+        '3d': 3 * 24 * 60 * 60 * 1000,
+        '1w': 7 * 24 * 60 * 60 * 1000,
+        '2w': 14 * 24 * 60 * 60 * 1000,
+        '1m': 30 * 24 * 60 * 60 * 1000
+    };
+    return map[tf] || 3600000;
+}
+
+// Update candle history for a ticker across timeframes
+function updateCandleHistory(ticker, timeframes) {
+    const now = Date.now();
+    
+    timeframes.forEach(tf => {
+        const tfMs = timeframeToMs(tf);
+        
+        if (!candleHistory[tf][ticker.pair]) {
+            candleHistory[tf][ticker.pair] = [];
+            lastCandleTime[tf][ticker.pair] = now;
+        }
+        
+        const lastTime = lastCandleTime[tf][ticker.pair];
+        const timeDiff = now - lastTime;
+        
+        // Create new candle or update existing
+        if (timeDiff >= tfMs) {
+            candleHistory[tf][ticker.pair].push({
+                open: ticker.last,
+                high: ticker.high,
+                low: ticker.low,
+                close: ticker.last,
+                volume: ticker.volume,
+                timestamp: now
+            });
+            lastCandleTime[tf][ticker.pair] = now;
+            
+            // Limit to 100 candles per timeframe
+            if (candleHistory[tf][ticker.pair].length > 100) {
+                candleHistory[tf][ticker.pair].shift();
+            }
+        } else {
+            // Update current candle
+            const currentCandles = candleHistory[tf][ticker.pair];
+            if (currentCandles.length > 0) {
+                const lastCandle = currentCandles[currentCandles.length - 1];
+                lastCandle.high = Math.max(lastCandle.high, ticker.high);
+                lastCandle.low = Math.min(lastCandle.low, ticker.low);
+                lastCandle.close = ticker.last;
+                lastCandle.volume = ticker.volume;
+            }
+        }
+    });
+}
+
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request));
 });
@@ -48,9 +121,11 @@ async function getMarketData() {
         volumeIDR = parseFloat(ticker.vol_idr) || 0;
       }
       
+      // Calculate from mid-price for accurate momentum/trend
+      const midPrice = (high + low) / 2;
       let priceChangePercent = 0;
-      if (low > 0) {
-        priceChangePercent = ((last - low) / low * 100);
+      if (midPrice > 0) {
+        priceChangePercent = ((last - midPrice) / midPrice * 100);
       }
       
       return {
@@ -76,12 +151,18 @@ async function getMarketData() {
     const totalVolume = validTickers.reduce((sum, t) => sum + t.volume, 0);
     const avgVolume = totalVolume / validTickers.length;
     
+    // Update candle history for all timeframes
+    const timeframes = ['15m', '30m', '1h', '2h', '4h', '1d', '3d', '1w', '2w', '1m'];
+    validTickers.forEach(ticker => {
+      updateCandleHistory(ticker, timeframes);
+    });
+    
     const tickersWithSignals = validTickers.map(ticker => {
       const signals = {};
-      const timeframes = ['15m', '30m', '1h', '2h', '4h', '1d', '3d', '1w', '2w', '1m'];
       
       timeframes.forEach(tf => {
-        signals[tf] = analyzeSignalAdvanced(ticker, avgVolume, tf);
+        const tfCandles = candleHistory[tf][ticker.pair] || [];
+        signals[tf] = analyzeSignalAdvanced(ticker, avgVolume, tf, tfCandles);
       });
       
       return { ...ticker, signals };
@@ -214,8 +295,15 @@ function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
 }
 
 // New getRecommendation function with clear, non-overlapping logic
-function getRecommendation(ticker, bullishCount, bearishCount, winRate, trend, timeframe) {
+function getRecommendation(ticker, bullishCount, bearishCount, winRate, trend, timeframe, avgVolume) {
     const bbPosition = calculateBBPositionForRecommendation(ticker, ticker.high, ticker.low, timeframe);
+    
+    // Check volume and volatility
+    const volatility = ((ticker.high - ticker.low) / ticker.low) * 100;
+    const volumeRatio = ticker.volume / avgVolume;
+    
+    const isLowVolume = volumeRatio < 0.5;
+    const isHighVolatility = volatility > 15;
     
     // 1. Sideways trend with low confidence
     if (trend === 'SIDEWAYS' && winRate < 55) {
@@ -224,43 +312,59 @@ function getRecommendation(ticker, bullishCount, bearishCount, winRate, trend, t
     
     // 2. Strong Bullish (with BB confirmation)
     if (bullishCount >= 7 && winRate >= 87.5 && bbPosition.nearSupport) {
+        if (isLowVolume) return { text: '🟡 BUY WATCH' }; // Downgrade for low volume
+        if (isHighVolatility) return { text: '🟢 ACCUMULATE' }; // Downgrade for high volatility
         return { text: '🟢 BUY STRONG' };
     }
     if (bullishCount >= 6 && winRate >= 75 && bbPosition.nearSupport) {
+        if (isLowVolume) return { text: '🟠 BUY WATCH' };
+        if (isHighVolatility) return { text: '🟡 WAIT BUY' };
         return { text: '🟢 BUY NOW' };
     }
     if (bullishCount >= 5 && winRate >= 62.5 && bbPosition.nearSupport) {
+        if (isLowVolume) return { text: '🟠 BUY WATCH' };
+        if (isHighVolatility) return { text: '🟡 WAIT BUY' };
         return { text: '🟢 ACCUMULATE' };
     }
     
     // 3. Moderate Bullish (need confirmation)
     if (bullishCount >= 5 && winRate >= 62.5) {
         // Has 5+ bullish signals but NOT at support
+        if (isLowVolume || isHighVolatility) return { text: '🟡 WAIT' };
         return { text: '🟠 BUY WATCH' };
     }
     if (bullishCount >= 4 && winRate >= 50) {
         if (trend === 'DOWNTREND') return { text: '🟡 WAIT BUY' }; // Wait for reversal
+        if (isLowVolume || isHighVolatility) return { text: '🟡 WAIT' };
         return { text: '🟠 BUY WATCH' };
     }
     
     // 4. Strong Bearish (with BB confirmation)
     if (bearishCount >= 7 && winRate >= 87.5 && bbPosition.nearResistance) {
+        if (isLowVolume) return { text: '🟡 SELL WATCH' }; // Downgrade for low volume
+        if (isHighVolatility) return { text: '🟡 DISTRIBUTE' }; // Downgrade for high volatility
         return { text: '🔴 SELL STRONG' };
     }
     if (bearishCount >= 6 && winRate >= 75 && bbPosition.nearResistance) {
+        if (isLowVolume) return { text: '🟠 SELL WATCH' };
+        if (isHighVolatility) return { text: '🟡 WAIT SELL' };
         return { text: '🔴 SELL NOW' };
     }
     if (bearishCount >= 5 && winRate >= 62.5 && bbPosition.nearResistance) {
+        if (isLowVolume) return { text: '🟠 SELL WATCH' };
+        if (isHighVolatility) return { text: '🟡 WAIT SELL' };
         return { text: '🟡 DISTRIBUTE' };
     }
     
     // 5. Moderate Bearish (need confirmation)
     if (bearishCount >= 5 && winRate >= 62.5) {
         // Has 5+ bearish signals but NOT at resistance
+        if (isLowVolume || isHighVolatility) return { text: '🟡 WAIT' };
         return { text: '🟠 SELL WATCH' };
     }
     if (bearishCount >= 4 && winRate >= 50) {
         if (trend === 'UPTREND') return { text: '🟡 WAIT SELL' }; // Wait for reversal
+        if (isLowVolume || isHighVolatility) return { text: '🟡 WAIT' };
         return { text: '🟠 SELL WATCH' };
     }
     
@@ -276,22 +380,87 @@ function getRecommendation(ticker, bullishCount, bearishCount, winRate, trend, t
     return { text: '⚪ HOLD' };
 }
 
-function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h') {
+// Detect trend from candle patterns
+function detectTrendFromCandles(candles) {
+    if (candles.length < 10) return 'SIDEWAYS';
+    
+    const recentCandles = candles.slice(-10);
+    let higherHighs = 0, higherLows = 0, lowerHighs = 0, lowerLows = 0;
+    
+    for (let i = 1; i < recentCandles.length; i++) {
+        const prev = recentCandles[i - 1];
+        const curr = recentCandles[i];
+        
+        if (curr.high > prev.high) higherHighs++;
+        else lowerHighs++;
+        
+        if (curr.low > prev.low) higherLows++;
+        else lowerLows++;
+    }
+    
+    const closes = recentCandles.map(c => c.close);
+    const sma5 = closes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const sma10 = closes.reduce((a, b) => a + b, 0) / 10;
+    const currentPrice = closes[closes.length - 1];
+    
+    // UPTREND: Higher highs + higher lows + price > SMA
+    if (higherHighs >= 6 && higherLows >= 6 && currentPrice > sma10 && sma5 > sma10) {
+        return 'UPTREND';
+    }
+    // DOWNTREND: Lower highs + lower lows + price < SMA
+    else if (lowerHighs >= 6 && lowerLows >= 6 && currentPrice < sma10 && sma5 < sma10) {
+        return 'DOWNTREND';
+    }
+    else {
+        return 'SIDEWAYS';
+    }
+}
+
+// Calculate Bollinger Bands (BB 20,2)
+function calculateBollingerBands(candles, period = 20, stdDev = 2) {
+    if (!candles || candles.length < period) {
+        return { upper: 0, middle: 0, lower: 0, position: 'MID', posPercent: 50 };
+    }
+    
+    const closes = candles.slice(-period).map(c => c.close);
+    const sma = closes.reduce((a, b) => a + b, 0) / period;
+    
+    const squaredDiffs = closes.map(c => Math.pow(c - sma, 2));
+    const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
+    const std = Math.sqrt(variance);
+    
+    const upper = sma + (stdDev * std);
+    const lower = sma - (stdDev * std);
+    const current = candles[candles.length - 1].close;
+    
+    let position = 'MID';
+    const range = upper - lower;
+    const posPercent = range > 0 ? ((current - lower) / range) * 100 : 50;
+    
+    if (posPercent >= 80) position = 'OVERBOUGHT';
+    else if (posPercent <= 20) position = 'OVERSOLD';
+    else if (posPercent >= 60) position = 'ABOVE_MID';
+    else if (posPercent <= 40) position = 'BELOW_MID';
+    
+    return { upper, middle: sma, lower, position, posPercent };
+}
+
+function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = null) {
   let score = 0;
   let signals = [];
   let type = 'HOLD';
   
   const tfMultipliers = {
-    '15m': { sensitivity: 1.8, volatility: 1.5, name: '15 Minute' },
-    '30m': { sensitivity: 1.6, volatility: 1.4, name: '30 Minute' },
-    '1h': { sensitivity: 1.4, volatility: 1.3, name: '1 Hour' },
-    '2h': { sensitivity: 1.2, volatility: 1.2, name: '2 Hours' },
-    '4h': { sensitivity: 1.0, volatility: 1.0, name: '4 Hours' },
-    '1d': { sensitivity: 0.8, volatility: 0.9, name: '1 Day' },
-    '3d': { sensitivity: 0.6, volatility: 0.7, name: '3 Days' },
-    '1w': { sensitivity: 0.5, volatility: 0.6, name: '1 Week' },
-    '2w': { sensitivity: 0.4, volatility: 0.5, name: '2 Week' },
-    '1m': { sensitivity: 0.3, volatility: 0.4, name: '1 Month' }
+    '15m': { sensitivity: 1.8, volatility: 1.5, trendThreshold: 1.2, name: '15 Minute' },
+    '30m': { sensitivity: 1.6, volatility: 1.4, trendThreshold: 1.3, name: '30 Minute' },
+    '1h': { sensitivity: 1.4, volatility: 1.3, trendThreshold: 1.5, name: '1 Hour' },
+    '2h': { sensitivity: 1.2, volatility: 1.2, trendThreshold: 1.6, name: '2 Hours' },
+    '4h': { sensitivity: 1.0, volatility: 1.0, trendThreshold: 1.8, name: '4 Hours' },
+    '1d': { sensitivity: 0.8, volatility: 0.9, trendThreshold: 2.0, name: '1 Day' },
+    '3d': { sensitivity: 0.6, volatility: 0.7, trendThreshold: 2.5, name: '3 Days' },
+    '1w': { sensitivity: 0.5, volatility: 0.6, trendThreshold: 3.0, name: '1 Week' },
+    '2w': { sensitivity: 0.4, volatility: 0.5, trendThreshold: 3.5, name: '2 Week' },
+    '1m': { sensitivity: 0.3, volatility: 0.4, trendThreshold: 4.0, name: '1 Month' }
   };
   
   const tfConfig = tfMultipliers[timeframe] || tfMultipliers['1h'];
@@ -311,21 +480,34 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h') {
   const stochRSI = pricePosition;
   
   const volatility = ((ticker.high - ticker.low) / ticker.low) * 100 * tfConfig.volatility;
-  const midBand = (ticker.high + ticker.low) / 2;
-  const bandWidth = ticker.high - ticker.low;
   
-  const distanceFromUpper = ((ticker.high - ticker.last) / bandWidth) * 100;
-  const distanceFromLower = ((ticker.last - ticker.low) / bandWidth) * 100;
-  
+  // Calculate Bollinger Bands - use true BB(20,2) when candles available
   let bbSignal = 'NEUTRAL';
-  if (distanceFromLower < 10) {
-    bbSignal = 'OVERSOLD';
-  } else if (distanceFromUpper < 10) {
-    bbSignal = 'OVERBOUGHT';
-  } else if (ticker.last > midBand) {
-    bbSignal = 'ABOVE_MID';
+  let bbData = { position: 'MID', posPercent: 50 };
+  
+  if (candles && candles.length >= 20) {
+    // TRUE BB(20,2) calculation
+    bbData = calculateBollingerBands(candles, 20, 2);
+    const bbPercent = bbData.posPercent;
+    
+    if (bbPercent >= 80) bbSignal = 'OVERBOUGHT';
+    else if (bbPercent <= 20) bbSignal = 'OVERSOLD';
+    else if (bbPercent >= 60) bbSignal = 'ABOVE_MID';
+    else if (bbPercent <= 40) bbSignal = 'BELOW_MID';
   } else {
-    bbSignal = 'BELOW_MID';
+    // Fallback to estimation from 24h range
+    const midBand = (ticker.high + ticker.low) / 2;
+    const bandWidth = ticker.high - ticker.low;
+    
+    if (bandWidth > 0) {
+      const distanceFromUpper = ((ticker.high - ticker.last) / bandWidth) * 100;
+      const distanceFromLower = ((ticker.last - ticker.low) / bandWidth) * 100;
+      
+      if (distanceFromLower < 10) bbSignal = 'OVERSOLD';
+      else if (distanceFromUpper < 10) bbSignal = 'OVERBOUGHT';
+      else if (ticker.last > midBand) bbSignal = 'ABOVE_MID';
+      else bbSignal = 'BELOW_MID';
+    }
   }
   
   const volumeRatio = ticker.volume / avgVolume;
@@ -340,13 +522,17 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h') {
     }
   }
   
-  // Detect trend
+  // Detect trend - use candle patterns if available, otherwise use momentum
   let trend = 'SIDEWAYS';
-  const trendThreshold = 2 * tfConfig.sensitivity;
-  if (momentum > trendThreshold) {
-    trend = 'UPTREND';
-  } else if (momentum < -trendThreshold) {
-    trend = 'DOWNTREND';
+  if (candles && candles.length >= 10) {
+    trend = detectTrendFromCandles(candles);
+  } else {
+    // Fallback to momentum-based trend detection
+    if (momentum > tfConfig.trendThreshold) {
+      trend = 'UPTREND';
+    } else if (momentum < -tfConfig.trendThreshold) {
+      trend = 'DOWNTREND';
+    }
   }
   
   // MACD proxy - use price position relative to midpoint and volume for more independence
@@ -539,7 +725,7 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h') {
   }
   
   // Get recommendation using new system
-  const recommendationData = getRecommendation(ticker, bullishCount, bearishCount, Math.round(winRate), trend, timeframe);
+  const recommendationData = getRecommendation(ticker, bullishCount, bearishCount, Math.round(winRate), trend, timeframe, avgVolume);
   const recommendation = recommendationData.text;
   
   return {
@@ -2047,10 +2233,33 @@ function getHTML() {
                 }
             }
             
+            // RSI/StochRSI extreme levels (NEW)
+            if (signal.indicators) {
+                const rsi = parseFloat(signal.indicators.rsi);
+                const stochRSI = parseFloat(signal.indicators.stochRSI);
+                if (rsi > 85 || rsi < 15 || stochRSI > 90 || stochRSI < 10) {
+                    riskScore += 2;
+                }
+            }
+            
+            // Low win rate = higher risk (NEW)
+            if (signal.winRate < 40) {
+                riskScore += 2;
+            }
+            
+            // Counter-trend signal = higher risk (NEW)
+            if (signal.indicators) {
+                const trend = signal.indicators.trend;
+                if ((signal.type === 'BUY' && trend === 'DOWNTREND') ||
+                    (signal.type === 'SELL' && trend === 'UPTREND')) {
+                    riskScore += 2;
+                }
+            }
+            
             // Determine risk level
-            if (riskScore >= 6) return { level: 'VERY HIGH', color: '#dc2626', icon: '🔴⚠️', class: 'risk-very-high' };
-            if (riskScore >= 4) return { level: 'HIGH', color: '#ef4444', icon: '🔴', class: 'risk-high' };
-            if (riskScore >= 2) return { level: 'MEDIUM', color: '#f59e0b', icon: '🟡', class: 'risk-medium' };
+            if (riskScore >= 8) return { level: 'VERY HIGH', color: '#dc2626', icon: '🔴⚠️', class: 'risk-very-high' };
+            if (riskScore >= 6) return { level: 'HIGH', color: '#ef4444', icon: '🔴', class: 'risk-high' };
+            if (riskScore >= 3) return { level: 'MEDIUM', color: '#f59e0b', icon: '🟡', class: 'risk-medium' };
             return { level: 'LOW', color: '#22c55e', icon: '🟢', class: 'risk-low' };
         }
         
@@ -2500,13 +2709,13 @@ function getHTML() {
             const multiplier = currentVolume / avgVolume;
             
             if (multiplier < 0.1) {
-                return `⚠️ ${(multiplier * 100).toFixed(0)}% Avg`;
+                return '⚠️ ' + (multiplier * 100).toFixed(0) + '% Avg';
             } else if (multiplier < 0.5) {
-                return `⚠️ ${multiplier.toFixed(1)}x Avg`;
+                return '⚠️ ' + multiplier.toFixed(1) + 'x Avg';
             } else if (multiplier > 3) {
-                return `🔥 ${multiplier.toFixed(1)}x Avg`;
+                return '🔥 ' + multiplier.toFixed(1) + 'x Avg';
             } else {
-                return `${multiplier.toFixed(1)}x Avg`;
+                return multiplier.toFixed(1) + 'x Avg';
             }
         }
         
@@ -2577,19 +2786,19 @@ function getHTML() {
             let volumeClass = 'neutral';
             if (volumeSpike) {
                 if (priceUp) {
-                    volumeStatus = `🔥 Volume: ${volumeRatio.toFixed(1)}x Spike + Price Up`;
+                    volumeStatus = '🔥 Volume: ' + volumeRatio.toFixed(1) + 'x Spike + Price Up';
                     volumeClass = 'bullish';
                 } else if (priceDown) {
-                    volumeStatus = `🔥 Volume: ${volumeRatio.toFixed(1)}x Spike + Price Down`;
+                    volumeStatus = '🔥 Volume: ' + volumeRatio.toFixed(1) + 'x Spike + Price Down';
                     volumeClass = 'bearish';
                 } else {
-                    volumeStatus = `🔥 Volume: ${volumeRatio.toFixed(1)}x Spike`;
+                    volumeStatus = '🔥 Volume: ' + volumeRatio.toFixed(1) + 'x Spike';
                     volumeClass = 'neutral';
                 }
             } else {
                 // Use improved volume formatting for non-spike volumes
                 const volDisplay = formatVolumeDisplay(ticker.volume, ticker.volume / volumeRatio);
-                volumeStatus = `📊 Volume: ${volDisplay}`;
+                volumeStatus = '📊 Volume: ' + volDisplay;
                 volumeClass = 'neutral';
             }
             signalsList.push(\`<div class="signal-item \${volumeClass}">\${volumeStatus}</div>\`);
