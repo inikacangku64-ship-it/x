@@ -1,6 +1,10 @@
 // Cloudflare Workers - Indodax Market Analyzer - Full Stock Exchange Style
 const INDODAX_API_BASE = 'https://indodax.com/api';
 
+// Debug flag for Bollinger Bands calculation logging
+// Set to true to enable detailed BB calculation logs
+const DEBUG_BB_CALCULATION = false;
+
 // Global storage for multi-timeframe candles
 let candleHistory = {
     '15m': {}, '30m': {}, '1h': {}, '2h': {}, '4h': {},
@@ -512,20 +516,22 @@ function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
     // ========================================
     // DEBUG LOGGING: Verify calculation
     // ========================================
-    const pairName = candles[0]?.pair || 'Unknown';
-    console.log('📊 BB(20,2) Calculation for', pairName, {
-        currentClose: currentClose,
-        sma: sma.toFixed(2),
-        stdDev: stdDev.toFixed(2),
-        upper: upperBand.toFixed(2),
-        middle: sma.toFixed(2),
-        lower: lowerBand.toFixed(2),
-        position: posPercent.toFixed(1) + '%',
-        bandWidth: bandWidth.toFixed(2),
-        candleCount: candles.length,
-        last5Closes: closes.slice(-5).map(c => c.toFixed(2)),
-        calculationType: 'POPULATION_STDEV'
-    });
+    if (DEBUG_BB_CALCULATION) {
+        const pairName = candles[candles.length - 1]?.pair || recentCandles[0]?.pair || 'Unknown';
+        console.log('📊 BB(20,2) Calculation for', pairName, {
+            currentClose: currentClose,
+            sma: sma.toFixed(2),
+            stdDev: stdDev.toFixed(2),
+            upper: upperBand.toFixed(2),
+            middle: sma.toFixed(2),
+            lower: lowerBand.toFixed(2),
+            position: posPercent.toFixed(1) + '%',
+            bandWidth: bandWidth.toFixed(2),
+            candleCount: candles.length,
+            last5Closes: closes.slice(-5).map(c => c.toFixed(2)),
+            calculationType: 'POPULATION_STDEV'
+        });
+    }
     
     return {
         upper: upperBand,
@@ -2218,6 +2224,10 @@ function getHTML() {
     <!-- Chart Modal removed -->
 
     <script>
+        // Debug flag for Bollinger Bands calculation logging
+        // Set to true to enable detailed BB calculation logs
+        const DEBUG_BB_CALCULATION = false;
+        
         let marketData = null;
         let previousMarketData = null;
         let isLoading = false;
@@ -2415,20 +2425,22 @@ function getHTML() {
             // ========================================
             // DEBUG LOGGING: Verify calculation
             // ========================================
-            const pairName = candles[0]?.pair || 'Unknown';
-            console.log('📊 BB(20,2) Calculation for', pairName, {
-                currentClose: currentClose,
-                sma: sma.toFixed(2),
-                stdDev: stdDev.toFixed(2),
-                upper: upperBand.toFixed(2),
-                middle: sma.toFixed(2),
-                lower: lowerBand.toFixed(2),
-                position: posPercent.toFixed(1) + '%',
-                bandWidth: bandWidth.toFixed(2),
-                candleCount: candles.length,
-                last5Closes: closes.slice(-5).map(c => c.toFixed(2)),
-                calculationType: 'POPULATION_STDEV'
-            });
+            if (DEBUG_BB_CALCULATION) {
+                const pairName = candles[candles.length - 1]?.pair || recentCandles[0]?.pair || 'Unknown';
+                console.log('📊 BB(20,2) Calculation for', pairName, {
+                    currentClose: currentClose,
+                    sma: sma.toFixed(2),
+                    stdDev: stdDev.toFixed(2),
+                    upper: upperBand.toFixed(2),
+                    middle: sma.toFixed(2),
+                    lower: lowerBand.toFixed(2),
+                    position: posPercent.toFixed(1) + '%',
+                    bandWidth: bandWidth.toFixed(2),
+                    candleCount: candles.length,
+                    last5Closes: closes.slice(-5).map(c => c.toFixed(2)),
+                    calculationType: 'POPULATION_STDEV'
+                });
+            }
             
             return {
                 upper: upperBand,
