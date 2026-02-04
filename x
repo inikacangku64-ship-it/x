@@ -128,67 +128,153 @@ async function getMarketData() {
 // Helper function to calculate Bollinger Band position for recommendation logic
 // This version calculates both support and resistance based on Bollinger Bands
 // Used early in signal analysis before type is fully determined
+// Bollinger Bands (20,2) - Industry Standard Setting
+// Note: Approximated from 24h range due to real-time API limitations
 function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
   const last = ticker.last;
-  const tolerance = 0.02; // 2%
+  const tolerance = 0.015; // 1.5% tolerance
   
-  // Calculate approximate Bollinger Bands based on high/low range
-  const midBand = (high + low) / 2;
-  const bandRange = high - low;
+  // Estimate BB(20,2) from 24h range
+  const range24h = high - low;
+  const midPrice = (high + low) / 2;
   
-  // Standard Bollinger Bands use 2 standard deviations
-  // Approximate: Upper Band = High, Lower Band = Low, Middle = Average
-  const upperBand = high;
-  const lowerBand = low;
+  // High/Low typically represent ~3σ movement (99.7% of price action)
+  // So we estimate: σ ≈ range / 6
+  // Then BB(20,2) = SMA ± 2σ ≈ SMA ± (2 * range/6) = SMA ± range/3
+  const estimatedStdDev = range24h / 6;
   
-  // Calculate support levels based on Lower Bollinger Band (LBB)
-  // Consistent with calculateBollingerBandLevels logic
-  const support1 = lowerBand + (bandRange * 0.05); // 5% above LBB
-  const support2 = support1 * 0.968; // 3.2% below Support 1
-  const support3 = support1 * 0.935; // 6.5% below Support 1
+  // Calculate BB(20,2) approximation
+  const upperBand = midPrice + (2 * estimatedStdDev);  // SMA + 2σ
+  const lowerBand = midPrice - (2 * estimatedStdDev);  // SMA - 2σ
+  const middleBand = midPrice;
   
-  // Calculate resistance levels based on Upper Bollinger Band (UBB)
-  // Consistent with calculateBollingerBandLevels logic
-  const resistance1 = upperBand - (bandRange * 0.03); // 3% below UBB
-  const resistance2 = resistance1 * 1.022; // 2.2% above Resistance 1
-  const resistance3 = resistance1 * 1.044; // 4.4% above Resistance 1
+  // Calculate BB position percentage (0-100%)
+  const bbRange = upperBand - lowerBand;
+  const bbPositionPercent = bbRange > 0 ? ((last - lowerBand) / bbRange) * 100 : 50;
   
+  // Calculate support/resistance levels proportional to BB width
+  const bandWidth = upperBand - lowerBand;
+  
+  // Support levels (for BUY signals)
+  const support1 = lowerBand + (bandWidth * 0.05);  // 5% above lower band
+  const support2 = lowerBand + (bandWidth * 0.02);  // 2% above lower band
+  const support3 = lowerBand;                       // At lower band
+  
+  // Resistance levels (for SELL signals)
+  const resistance1 = upperBand - (bandWidth * 0.05);  // 5% below upper band
+  const resistance2 = upperBand - (bandWidth * 0.02);  // 2% below upper band
+  const resistance3 = upperBand;                       // At upper band
+  
+  // Check near support (lower 25% of BB range)
   const nearSupport = (
     Math.abs(last - support1) / last < tolerance ||
     Math.abs(last - support2) / last < tolerance ||
     Math.abs(last - support3) / last < tolerance ||
-    last <= support1 * 1.02 // Within 2% above support 1
+    bbPositionPercent <= 25 ||
+    (last >= support3 && last <= support1 * 1.03)
   );
   
+  // Check near resistance (top 25% of BB range)
   const nearResistance = (
     Math.abs(last - resistance1) / last < tolerance ||
     Math.abs(last - resistance2) / last < tolerance ||
     Math.abs(last - resistance3) / last < tolerance ||
-    last >= resistance1 * 0.98 // Within 2% below resistance 1
+    bbPositionPercent >= 75 ||
+    (last <= resistance3 && last >= resistance1 * 0.97)
   );
   
-  return { nearSupport, nearResistance };
+  // Determine BB status
+  let bbStatus = 'MID';
+  if (bbPositionPercent >= 90) bbStatus = 'EXTREME_OVERBOUGHT';
+  else if (bbPositionPercent >= 80) bbStatus = 'OVERBOUGHT';
+  else if (bbPositionPercent >= 60) bbStatus = 'UPPER';
+  else if (bbPositionPercent <= 10) bbStatus = 'EXTREME_OVERSOLD';
+  else if (bbPositionPercent <= 20) bbStatus = 'OVERSOLD';
+  else if (bbPositionPercent <= 40) bbStatus = 'LOWER';
+  
+  // Calculate bandwidth (volatility indicator)
+  const bandwidth = ((upperBand - lowerBand) / middleBand) * 100;
+  const isSqueeze = bandwidth < 8; // BB Squeeze = potential breakout
+  
+  return {
+    nearSupport,
+    nearResistance,
+    upper: upperBand,
+    middle: middleBand,
+    lower: lowerBand,
+    positionPercent: Math.round(bbPositionPercent * 10) / 10,
+    status: bbStatus,
+    bandwidth: Math.round(bandwidth * 10) / 10,
+    supports: { s1: support1, s2: support2, s3: support3 },
+    resistances: { r1: resistance1, r2: resistance2, r3: resistance3 },
+    isSqueeze,
+    isOverbought: bbPositionPercent >= 80,
+    isOversold: bbPositionPercent <= 20
+  };
 }
 
-// New getRecommendation function with 15 status levels
+// New getRecommendation function with clear, non-overlapping logic
 function getRecommendation(ticker, bullishCount, bearishCount, winRate, trend, timeframe) {
     const bbPosition = calculateBBPositionForRecommendation(ticker, ticker.high, ticker.low, timeframe);
-    if (trend === 'SIDEWAYS' && winRate < 55) return { text: '➖ SIDEWAYS' };
-    if (bullishCount >= 7 && winRate >= 85 && bbPosition.nearSupport) return { text: '🟢 BUY STRONG' };
-    if (bullishCount >= 6 && winRate >= 75 && bbPosition.nearSupport) return { text: '🟢 BUY NOW' };
-    if (bullishCount >= 5 && winRate >= 65) return { text: '🟢 ACCUMULATE' };
-    if (bullishCount >= 4 && winRate >= 55 && trend === 'DOWNTREND') return { text: '🟡 WAIT BUY' };
-    if (bullishCount >= 3 && bullishCount <= 4 && winRate >= 50) return { text: '🟠 BUY WATCH' };
-    if (bullishCount >= 4 && !bbPosition.nearSupport) return { text: '🟡 WAIT BUY' };
-    if (bearishCount >= 7 && winRate >= 85 && bbPosition.nearResistance) return { text: '🔴 SELL STRONG' };
-    if (bearishCount >= 6 && winRate >= 75 && bbPosition.nearResistance) return { text: '🔴 SELL NOW' };
-    if (bearishCount >= 5 && winRate >= 65) return { text: '🟡 DISTRIBUTED' };
-    if (bearishCount >= 4 && winRate >= 55 && trend === 'UPTREND') return { text: '🟡 WAIT SELL' };
-    if (bearishCount >= 3 && bearishCount <= 4 && winRate >= 50) return { text: '🟠 SELL WATCH' };
-    if (bearishCount >= 4 && !bbPosition.nearResistance) return { text: '🟡 WAIT SELL' };
-    if (Math.abs(bullishCount - bearishCount) <= 1) return { text: '🟡 WAIT' };
+    
+    // 1. Sideways trend with low confidence
+    if (trend === 'SIDEWAYS' && winRate < 55) {
+        return { text: '➖ SIDEWAYS' };
+    }
+    
+    // 2. Strong Bullish (with BB confirmation)
+    if (bullishCount >= 7 && winRate >= 87.5 && bbPosition.nearSupport) {
+        return { text: '🟢 BUY STRONG' };
+    }
+    if (bullishCount >= 6 && winRate >= 75 && bbPosition.nearSupport) {
+        return { text: '🟢 BUY NOW' };
+    }
+    if (bullishCount >= 5 && winRate >= 62.5 && bbPosition.nearSupport) {
+        return { text: '🟢 ACCUMULATE' };
+    }
+    
+    // 3. Moderate Bullish (need confirmation)
+    if (bullishCount >= 5 && winRate >= 62.5) {
+        // Has 5+ bullish signals but NOT at support
+        return { text: '🟠 BUY WATCH' };
+    }
+    if (bullishCount >= 4 && winRate >= 50) {
+        if (trend === 'DOWNTREND') return { text: '🟡 WAIT BUY' }; // Wait for reversal
+        return { text: '🟠 BUY WATCH' };
+    }
+    
+    // 4. Strong Bearish (with BB confirmation)
+    if (bearishCount >= 7 && winRate >= 87.5 && bbPosition.nearResistance) {
+        return { text: '🔴 SELL STRONG' };
+    }
+    if (bearishCount >= 6 && winRate >= 75 && bbPosition.nearResistance) {
+        return { text: '🔴 SELL NOW' };
+    }
+    if (bearishCount >= 5 && winRate >= 62.5 && bbPosition.nearResistance) {
+        return { text: '🟡 DISTRIBUTE' };
+    }
+    
+    // 5. Moderate Bearish (need confirmation)
+    if (bearishCount >= 5 && winRate >= 62.5) {
+        // Has 5+ bearish signals but NOT at resistance
+        return { text: '🟠 SELL WATCH' };
+    }
+    if (bearishCount >= 4 && winRate >= 50) {
+        if (trend === 'UPTREND') return { text: '🟡 WAIT SELL' }; // Wait for reversal
+        return { text: '🟠 SELL WATCH' };
+    }
+    
+    // 6. Weak/Neutral signals
+    if (bullishCount >= 3 && bullishCount > bearishCount) {
+        return { text: '🟡 WAIT' };
+    }
+    if (bearishCount >= 3 && bearishCount > bullishCount) {
+        return { text: '🟡 WAIT' };
+    }
+    
+    // 7. Completely neutral or conflicting
     return { text: '⚪ HOLD' };
-  }
+}
 
 function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h') {
   let score = 0;
@@ -1940,9 +2026,10 @@ function getHTML() {
             else if (volatility > 10) riskScore += 2;
             else if (volatility > 5) riskScore += 1;
             
-            // Volume check
+            // Volume check (IMPROVED)
             const volumeRatio = ticker.volume / avgVolume;
-            if (volumeRatio < 0.5) riskScore += 2;
+            if (volumeRatio < 0.2) riskScore += 3; // Very low volume = HIGH RISK
+            else if (volumeRatio < 0.5) riskScore += 2;
             else if (volumeRatio < 1) riskScore += 1;
             
             // Spread check
@@ -1952,19 +2039,31 @@ function getHTML() {
                 else if (spread > 2) riskScore += 1;
             }
             
+            // BB position risk (NEW)
+            if (signal.indicators && signal.indicators.bbPosition) {
+                const bbPos = signal.indicators.bbPosition;
+                if (bbPos === 'EXTREME_OVERBOUGHT' || bbPos === 'EXTREME_OVERSOLD') {
+                    riskScore += 1; // Extreme positions = higher risk
+                }
+            }
+            
             // Determine risk level
-            if (riskScore >= 5) return { level: 'HIGH', color: '#ef4444', icon: '🔴', class: 'risk-high' };
-            if (riskScore >= 3) return { level: 'MEDIUM', color: '#f59e0b', icon: '🟡', class: 'risk-medium' };
+            if (riskScore >= 6) return { level: 'VERY HIGH', color: '#dc2626', icon: '🔴⚠️', class: 'risk-very-high' };
+            if (riskScore >= 4) return { level: 'HIGH', color: '#ef4444', icon: '🔴', class: 'risk-high' };
+            if (riskScore >= 2) return { level: 'MEDIUM', color: '#f59e0b', icon: '🟡', class: 'risk-medium' };
             return { level: 'LOW', color: '#22c55e', icon: '🟢', class: 'risk-low' };
         }
         
         // Calculate Support/Resistance using Bollinger Bands
         function calculateBollingerBandLevels(high, low, last, signalType, timeframe) {
-            // Use Bollinger Bands for Support/Resistance calculations
-            // Upper Band = High, Lower Band = Low, Middle Band = Average
-            const upperBand = high;
-            const lowerBand = low;
-            const middleBand = (high + low) / 2;
+            // Estimate BB(20,2) from 24h range
+            const range24h = high - low;
+            const midPrice = (high + low) / 2;
+            // High/Low typically represent ~3σ movement, so σ ≈ range / 6
+            const estimatedStdDev = range24h / 6;
+            const upperBand = midPrice + (2 * estimatedStdDev);
+            const lowerBand = midPrice - (2 * estimatedStdDev);
+            const middleBand = midPrice;
             const bandRange = upperBand - lowerBand;
             
             if (signalType === 'BUY') {
@@ -2396,6 +2495,21 @@ function getHTML() {
             return ticker.priceChangePercent >= 0 ? '▲' : '▼';
         }
         
+        // Format volume display with warnings and icons
+        function formatVolumeDisplay(currentVolume, avgVolume) {
+            const multiplier = currentVolume / avgVolume;
+            
+            if (multiplier < 0.1) {
+                return `⚠️ ${(multiplier * 100).toFixed(0)}% Avg`;
+            } else if (multiplier < 0.5) {
+                return `⚠️ ${multiplier.toFixed(1)}x Avg`;
+            } else if (multiplier > 3) {
+                return `🔥 ${multiplier.toFixed(1)}x Avg`;
+            } else {
+                return `${multiplier.toFixed(1)}x Avg`;
+            }
+        }
+        
         // Format signals list vertically (8 indicators)
         function formatSignalsList(signal, ticker) {
             const ind = signal.indicators;
@@ -2458,22 +2572,24 @@ function getHTML() {
             const macdIcon = macd > 0 ? '✅' : macd < 0 ? '❌' : '➖';
             signalsList.push(\`<div class="signal-item \${macdClass}">\${macdIcon} MACD: \${macdTrend} (\${macd > 0 ? '+' : ''}\${macd.toFixed(0)})</div>\`);
             
-            // 5. Volume - Detect volume spikes
+            // 5. Volume - Detect volume spikes with improved formatting
             let volumeStatus = '';
             let volumeClass = 'neutral';
             if (volumeSpike) {
                 if (priceUp) {
-                    volumeStatus = \`🔥 Volume: \${volumeRatio.toFixed(1)}x Spike + Price Up\`;
+                    volumeStatus = `🔥 Volume: ${volumeRatio.toFixed(1)}x Spike + Price Up`;
                     volumeClass = 'bullish';
                 } else if (priceDown) {
-                    volumeStatus = \`🔥 Volume: \${volumeRatio.toFixed(1)}x Spike + Price Down\`;
+                    volumeStatus = `🔥 Volume: ${volumeRatio.toFixed(1)}x Spike + Price Down`;
                     volumeClass = 'bearish';
                 } else {
-                    volumeStatus = \`🔥 Volume: \${volumeRatio.toFixed(1)}x Spike\`;
+                    volumeStatus = `🔥 Volume: ${volumeRatio.toFixed(1)}x Spike`;
                     volumeClass = 'neutral';
                 }
             } else {
-                volumeStatus = \`📊 Volume: \${volumeRatio.toFixed(1)}x Avg\`;
+                // Use improved volume formatting for non-spike volumes
+                const volDisplay = formatVolumeDisplay(ticker.volume, ticker.volume / volumeRatio);
+                volumeStatus = `📊 Volume: ${volDisplay}`;
                 volumeClass = 'neutral';
             }
             signalsList.push(\`<div class="signal-item \${volumeClass}">\${volumeStatus}</div>\`);
@@ -2506,7 +2622,12 @@ function getHTML() {
             techList.push(\`<div class="tech-item">StochRSI (14): \${ind.stochRSI} \${parseFloat(ind.stochRSI) < 20 ? '✅ Oversold' : parseFloat(ind.stochRSI) > 80 ? '❌ Overbought' : ''}</div>\`);
             techList.push(\`<div class="tech-item">BB (20,2): \${ind.bbPosition === 'OVERSOLD' ? 'Near Lower' : ind.bbPosition === 'OVERBOUGHT' ? 'Near Upper' : ind.bbPosition}</div>\`);
             techList.push(\`<div class="tech-item">MACD (12,26,9): \${ind.macd} \${parseFloat(ind.macd) > 0 ? '📈 Bullish' : parseFloat(ind.macd) < 0 ? '📉 Bearish' : ''}</div>\`);
-            techList.push(\`<div class="tech-item">Volume: \${ind.volumeRatio}x Avg \${ind.volumeSpike ? '🔥 Spike' : ''}</div>\`);
+            
+            // Improved volume display with warnings
+            const volumeRatio = parseFloat(ind.volumeRatio);
+            const volDisplay = formatVolumeDisplay(ticker.volume, ticker.volume / volumeRatio);
+            techList.push(\`<div class="tech-item">Volume: \${volDisplay} \${ind.volumeSpike ? '🔥 Spike' : ''}</div>\`);
+            
             techList.push(\`<div class="tech-item">Momentum: \${ind.momentum}% \${parseFloat(ind.momentum) > 0 ? '↗️' : parseFloat(ind.momentum) < 0 ? '↘️' : '➡️'}</div>\`);
             
             // Bollinger Band levels
