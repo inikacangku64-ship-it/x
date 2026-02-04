@@ -483,8 +483,8 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = nu
   
   const pricePosition = ((ticker.last - ticker.low) / (ticker.high - ticker.low)) * 100 || 50;
   
-  // Momentum calculation - Period 10 equivalent using price change percent
-  const momentumPeriod = 10;
+  // Momentum calculation - Using price change percent as proxy for momentum indicator
+  // When candle data is available, calculateMomentum function uses 10-period
   const momentum = ticker.priceChangePercent * tfConfig.sensitivity;
   let rsiProxy = 50;
   
@@ -2113,7 +2113,7 @@ function getHTML() {
 
         // Calculate RSI from real candle data (14 period with SMA 14)
         // RSI Settings: Period 14, SMA 14
-        function calculateRSI(candles, period = 14, smaPeriod = 14) {
+        function calculateRSI(candles, period = 14) {
             if (!candles || candles.length < period + 1) return 50;
             
             let gains = 0;
@@ -2128,9 +2128,9 @@ function getHTML() {
                 }
             }
             
-            // Use SMA for smoothing (SMA 14)
-            const avgGain = gains / smaPeriod;
-            const avgLoss = losses / smaPeriod;
+            // Standard RSI calculation using period (14) for averaging
+            const avgGain = gains / period;
+            const avgLoss = losses / period;
             
             if (avgLoss === 0) return 100;
             
@@ -2149,10 +2149,11 @@ function getHTML() {
             
             for (let i = rsiPeriod; i < candles.length; i++) {
                 const slice = candles.slice(i - rsiPeriod, i + 1);
-                rsiValues.push(calculateRSI(slice, rsiPeriod, rsiPeriod));
+                rsiValues.push(calculateRSI(slice, rsiPeriod));
             }
             
-            if (rsiValues.length < stochPeriod + smoothK) return 50;
+            // Need at least stochPeriod RSI values to calculate raw StochRSI
+            if (rsiValues.length < stochPeriod) return 50;
             
             // Calculate raw Stochastic RSI values
             const rawStochRSI = [];
@@ -2233,7 +2234,8 @@ function getHTML() {
         // Calculate MACD from real data (12, 26, close, 9)
         // MACD Settings: Fast EMA 12, Slow EMA 26, Signal EMA 9, Source: Close
         function calculateMACD(candles, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
-            if (!candles || candles.length < slowPeriod + signalPeriod) {
+            // Need slowPeriod + signalPeriod - 1 candles minimum for proper signal line calculation
+            if (!candles || candles.length < slowPeriod + signalPeriod - 1) {
                 return { macd: 0, signal: 0, histogram: 0 };
             }
             
@@ -2881,25 +2883,24 @@ function getHTML() {
             const macdIcon = macd > 0 ? '✅' : macd < 0 ? '❌' : '➖';
             signalsList.push(\`<div class="signal-item \${macdClass}">\${macdIcon} MACD: \${macdTrend} (\${macd > 0 ? '+' : ''}\${macd.toFixed(0)})</div>\`);
             
-            // 5. Volume - Detect volume spikes with improved formatting
             // 5. Volume (SMA 9) - Detect volume spikes with improved formatting
             let volumeStatus = '';
             let volumeClass = 'neutral';
             if (volumeSpike) {
                 if (priceUp) {
-                    volumeStatus = '🔥 Vol (SMA 9): ' + volumeRatio.toFixed(1) + 'x Spike + Price Up';
+                    volumeStatus = \`🔥 Vol (SMA 9): \${volumeRatio.toFixed(1)}x Spike + Price Up\`;
                     volumeClass = 'bullish';
                 } else if (priceDown) {
-                    volumeStatus = '🔥 Vol (SMA 9): ' + volumeRatio.toFixed(1) + 'x Spike + Price Down';
+                    volumeStatus = \`🔥 Vol (SMA 9): \${volumeRatio.toFixed(1)}x Spike + Price Down\`;
                     volumeClass = 'bearish';
                 } else {
-                    volumeStatus = '🔥 Vol (SMA 9): ' + volumeRatio.toFixed(1) + 'x Spike';
+                    volumeStatus = \`🔥 Vol (SMA 9): \${volumeRatio.toFixed(1)}x Spike\`;
                     volumeClass = 'neutral';
                 }
             } else {
                 // Use improved volume formatting for non-spike volumes
                 const volDisplay = formatVolumeDisplay(ticker.volume, ticker.volume / volumeRatio);
-                volumeStatus = '📊 Vol (SMA 9): ' + volDisplay;
+                volumeStatus = \`📊 Vol (SMA 9): \${volDisplay}\`;
                 volumeClass = 'neutral';
             }
             signalsList.push(\`<div class="signal-item \${volumeClass}">\${volumeStatus}</div>\`);
