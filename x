@@ -138,8 +138,10 @@ function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
   const range24h = high - low;
   const midPrice = (high + low) / 2;
   
-  // Assumption: 24h range ≈ 4 standard deviations (±2σ)
-  const estimatedStdDev = range24h / 4;
+  // High/Low typically represent ~3σ movement (99.7% of price action)
+  // So we estimate: σ ≈ range / 6
+  // Then BB(20,2) = SMA ± 2σ ≈ SMA ± (2 * range/6) = SMA ± range/3
+  const estimatedStdDev = range24h / 6;
   
   // Calculate BB(20,2) approximation
   const upperBand = midPrice + (2 * estimatedStdDev);  // SMA + 2σ
@@ -2057,7 +2059,8 @@ function getHTML() {
             // Estimate BB(20,2) from 24h range
             const range24h = high - low;
             const midPrice = (high + low) / 2;
-            const estimatedStdDev = range24h / 4;
+            // High/Low typically represent ~3σ movement, so σ ≈ range / 6
+            const estimatedStdDev = range24h / 6;
             const upperBand = midPrice + (2 * estimatedStdDev);
             const lowerBand = midPrice - (2 * estimatedStdDev);
             const middleBand = midPrice;
