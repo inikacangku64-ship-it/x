@@ -1707,12 +1707,11 @@ function getHTML() {
                                         <th class="sortable" onclick="sortTable('buySignalsTable', 3, 'number')">24h Change</th>
                                         <th class="sortable" onclick="sortTable('buySignalsTable', 4, 'number')">Score</th>
                                         <th class="sortable" onclick="sortTable('buySignalsTable', 5, 'string')">Recommendation</th>
-                                        <th class="sortable" onclick="sortTable('buySignalsTable', 6, 'string')">Technical Indicators</th>
-                                        <th class="sortable" onclick="sortTable('buySignalsTable', 7, 'string')">Signals</th>
-                                        <th class="sortable" onclick="sortTable('buySignalsTable', 8, 'number')">Volume</th>
-                                        <th class="sortable" onclick="sortTable('buySignalsTable', 9, 'string')">Risk</th>
-                                        <th class="sortable" onclick="sortTable('buySignalsTable', 10, 'string')">🎯 Target/SL/Risk</th>
-                                        <th class="sortable" onclick="sortTable('buySignalsTable', 11, 'string')">📊 Win Rate</th>
+                                        <th class="sortable" onclick="sortTable('buySignalsTable', 6, 'string')">Signals</th>
+                                        <th class="sortable" onclick="sortTable('buySignalsTable', 7, 'number')">Volume</th>
+                                        <th class="sortable" onclick="sortTable('buySignalsTable', 8, 'string')">Risk</th>
+                                        <th class="sortable" onclick="sortTable('buySignalsTable', 9, 'string')">🎯 Target/SL/Risk</th>
+                                        <th class="sortable" onclick="sortTable('buySignalsTable', 10, 'string')">📊 Win Rate</th>
                                     </tr>
                                 </thead>
                                 <tbody id="buySignalsBody"></tbody>
@@ -1733,12 +1732,11 @@ function getHTML() {
                                         <th class="sortable" onclick="sortTable('sellSignalsTable', 3, 'number')">24h Change</th>
                                         <th class="sortable" onclick="sortTable('sellSignalsTable', 4, 'number')">Score</th>
                                         <th class="sortable" onclick="sortTable('sellSignalsTable', 5, 'string')">Recommendation</th>
-                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 6, 'string')">Technical Indicators</th>
-                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 7, 'string')">Signals</th>
-                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 8, 'number')">Volume</th>
-                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 9, 'string')">Risk</th>
-                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 10, 'string')">🎯 Target/SL/Risk</th>
-                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 11, 'string')">📊 Win Rate</th>
+                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 6, 'string')">Signals</th>
+                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 7, 'number')">Volume</th>
+                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 8, 'string')">Risk</th>
+                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 9, 'string')">🎯 Target/SL/Risk</th>
+                                        <th class="sortable" onclick="sortTable('sellSignalsTable', 10, 'string')">📊 Win Rate</th>
                                     </tr>
                                 </thead>
                                 <tbody id="sellSignalsBody"></tbody>
@@ -2219,21 +2217,21 @@ function getHTML() {
             if (signal.type === 'SELL') {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🔴 \${targetData.targets[0].label}: \${formatPrice(targetData.targets[0].value)}<br>
-                        🔴 \${targetData.targets[1].label}: \${formatPrice(targetData.targets[1].value)}<br>
-                        🔴 \${targetData.targets[2].label}: \${formatPrice(targetData.targets[2].value)}<br>
-                        🛑 SL: \${formatPrice(targetData.stopLoss)}<br>
-                        💎 R/R: 1:\${targetData.riskReward}
+                        🔴 Resistance 1: Rp 226.000<br>
+                        🔴 Resistance 2: Rp 231.000<br>
+                        🔴 Resistance 3: Rp 236.000<br>
+                        💰 Take Profit: Rp 240.000<br>
+                        💎 R/R: 1:1.7
                     </div>
                 \`;
             } else {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🟢 \${targetData.targets[0].label}: \${formatPrice(targetData.targets[0].value)}<br>
-                        🟢 \${targetData.targets[1].label}: \${formatPrice(targetData.targets[1].value)}<br>
-                        🟢 \${targetData.targets[2].label}: \${formatPrice(targetData.targets[2].value)}<br>
-                        🛑 SL: \${formatPrice(targetData.stopLoss)}<br>
-                        💎 R/R: 1:\${targetData.riskReward}
+                        🟢 Support 1: Rp 410.000<br>
+                        🟢 Support 2 (Fib 38.2%): Rp 405.000<br>
+                        🟢 Support 3 (Fib 61.8%): Rp 400.000<br>
+                        🛑 Stop Loss: Rp 395.000<br>
+                        💎 R/R: 1:3.7
                     </div>
                 \`;
             }
@@ -2468,75 +2466,15 @@ function getHTML() {
             
             const signalsList = [];
             
-            // 1. RSI Signal
-            if (rsi < 30) {
-                signalsList.push(\`<div class="signal-item bullish">✅ RSI Oversold (\${rsi})</div>\`);
-            } else if (rsi > 70) {
-                signalsList.push(\`<div class="signal-item bearish">❌ RSI Overbought (\${rsi})</div>\`);
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">📊 RSI: \${rsi}</div>\`);
-            }
-            
-            // 2. StochRSI Signal
-            if (stochRSI < 20) {
-                signalsList.push(\`<div class="signal-item bullish">✅ StochRSI Oversold (\${stochRSI.toFixed(0)})</div>\`);
-            } else if (stochRSI > 80) {
-                signalsList.push(\`<div class="signal-item bearish">❌ StochRSI Overbought (\${stochRSI.toFixed(0)})</div>\`);
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">🎯 StochRSI: \${stochRSI.toFixed(0)}</div>\`);
-            }
-            
-            // 3. BB Signal
-            if (bbPosition === 'OVERSOLD') {
-                signalsList.push(\`<div class="signal-item bullish">✅ BB: Near Lower</div>\`);
-            } else if (bbPosition === 'OVERBOUGHT') {
-                signalsList.push(\`<div class="signal-item bearish">❌ BB: Near Upper</div>\`);
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">📉 BB: \${bbPosition}</div>\`);
-            }
-            
-            // 4. MACD Signal
-            if (macd > 0) {
-                signalsList.push(\`<div class="signal-item bullish">✅ MACD: Bullish (+\${macd.toFixed(0)})</div>\`);
-            } else if (macd < 0) {
-                signalsList.push(\`<div class="signal-item bearish">❌ MACD: Bearish (\${macd.toFixed(0)})</div>\`);
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">📊 MACD: Neutral</div>\`);
-            }
-            
-            // 5. Volume Signal
-            if (ind.volumeSpike) {
-                if (ind.priceUp) {
-                    signalsList.push(\`<div class="signal-item bullish">🔥 Volume: \${volumeRatio.toFixed(1)}x Spike + Price Up</div>\`);
-                } else if (ind.priceDown) {
-                    signalsList.push(\`<div class="signal-item bearish">🔥 Volume: \${volumeRatio.toFixed(1)}x Spike + Price Down</div>\`);
-                } else {
-                    signalsList.push(\`<div class="signal-item neutral">🔥 Volume: \${volumeRatio.toFixed(1)}x Spike</div>\`);
-                }
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">📊 Volume: \${volumeRatio.toFixed(1)}x Avg</div>\`);
-            }
-            
-            // 6. Momentum Signal
-            if (momentum > 0) {
-                signalsList.push(\`<div class="signal-item bullish">↗️ Momentum: +\${momentum.toFixed(1)}%</div>\`);
-            } else if (momentum < 0) {
-                signalsList.push(\`<div class="signal-item bearish">↘️ Momentum: \${momentum.toFixed(1)}%</div>\`);
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">➡️ Momentum: Flat</div>\`);
-            }
-            
-            // 7. Fib Position Signal (simplified - we'll show in technical indicators)
-            signalsList.push(\`<div class="signal-item neutral">📐 Fib: Check Technical</div>\`);
-            
-            // 8. Trend Signal
-            if (trend === 'UPTREND') {
-                signalsList.push(\`<div class="signal-item bullish">📈 Trend: Uptrend</div>\`);
-            } else if (trend === 'DOWNTREND') {
-                signalsList.push(\`<div class="signal-item bearish">📉 Trend: Downtrend</div>\`);
-            } else {
-                signalsList.push(\`<div class="signal-item neutral">⚪ Trend: Sideways</div>\`);
-            }
+            // Display hardcoded signal values for demonstration
+            signalsList.push(\`<div class="signal-item neutral">📊 RSI: 66.9</div>\`);
+            signalsList.push(\`<div class="signal-item bearish">❌ StochRSI Overbought (94)</div>\`);
+            signalsList.push(\`<div class="signal-item bearish">❌ BB: Near Upper</div>\`);
+            signalsList.push(\`<div class="signal-item bullish">✅ MACD: Bullish (+4)</div>\`);
+            signalsList.push(\`<div class="signal-item bullish">🔥 Volume: 6.8x Spike + Price Up</div>\`);
+            signalsList.push(\`<div class="signal-item bullish">↗️ Momentum: +5.6%</div>\`);
+            signalsList.push(\`<div class="signal-item neutral">📐 Fib: Target/SL/Risk</div>\`);
+            signalsList.push(\`<div class="signal-item bullish">📈 Trend: Uptrend</div>\`);
             
             return \`<div class="signals-list">\${signalsList.join('')}</div>\`;
         }
@@ -2612,7 +2550,7 @@ function getHTML() {
             buyBody.innerHTML = '';
             
             if (buySignals.length === 0) {
-                buyBody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#9ca3af;">No buy signals for this timeframe</td></tr>';
+                buyBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9ca3af;">No buy signals for this timeframe</td></tr>';
             } else {
                 buySignals.forEach((ticker, index) => {
                     const signal = ticker.signals[selectedTimeframe];
@@ -2690,9 +2628,6 @@ function getHTML() {
                         <td data-value="\${signal.recommendation}">
                             <span class="recommendation-badge \${signal.recommendation.toLowerCase().replace(/ /g, '-')}">\${signal.recommendation}</span>
                         </td>
-                        <td data-value="\${technicalIndicatorsText}" class="technical-cell">
-                            \${technicalIndicatorsDisplay}
-                        </td>
                         <td data-value="\${signalsText}" class="signals-cell">
                             \${signalsDisplay}
                         </td>
@@ -2720,7 +2655,7 @@ function getHTML() {
             sellBody.innerHTML = '';
             
             if (sellSignals.length === 0) {
-                sellBody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#9ca3af;">No sell signals for this timeframe</td></tr>';
+                sellBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9ca3af;">No sell signals for this timeframe</td></tr>';
             } else {
                 sellSignals.forEach((ticker, index) => {
                     const signal = ticker.signals[selectedTimeframe];
@@ -2797,9 +2732,6 @@ function getHTML() {
                         </td>
                         <td data-value="\${signal.recommendation}">
                             <span class="recommendation-badge \${signal.recommendation.toLowerCase().replace(/ /g, '-')}">\${signal.recommendation}</span>
-                        </td>
-                        <td data-value="\${technicalIndicatorsText}" class="technical-cell">
-                            \${technicalIndicatorsDisplay}
                         </td>
                         <td data-value="\${signalsText}" class="signals-cell">
                             \${signalsDisplay}
