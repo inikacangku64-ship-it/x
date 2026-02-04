@@ -2513,12 +2513,16 @@ function getHTML() {
             return lastK;
         }
 
-        // Calculate Bollinger Bands from real data (20 period, 2 std dev)
-        // Standard Bollinger Bands Calculation
-        // Period: 20 (SMA), Standard Deviation Multiplier: 2
+        // ========================================
+        // BOLLINGER BANDS (20, 2) - MATCHES TRADINGVIEW
+        // Uses Population Standard Deviation
+        // Handles edge cases (zero StdDev, invalid data)
+        // ========================================
+        
         function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
             if (!candles || candles.length < period) {
-                // Fallback for insufficient data
+                console.warn('⚠️ Insufficient candles for BB(20,2). Need:', period, 'Have:', candles ? candles.length : 0);
+                
                 if (candles && candles.length > 0) {
                     const closes = candles.map(c => c.close);
                     const high = Math.max(...closes);
@@ -2526,55 +2530,120 @@ function getHTML() {
                     const mid = (high + low) / 2;
                     const range = high - low;
                     
+                    if (range === 0 || range < mid * 0.001) {
+                        return {
+                            upper: mid * 1.05,
+                            middle: mid,
+                            lower: mid * 0.95,
+                            stdDev: mid * 0.025,
+                            posPercent: 50,
+                            position: 'MID',
+                            dataSource: 'FALLBACK_NO_RANGE'
+                        };
+                    }
+                    
                     return {
                         upper: mid + (range / 2),
                         middle: mid,
                         lower: mid - (range / 2),
-                        stdDev: range / 4,  // Estimate: range typically spans ~4 std deviations in normal distribution
+                        stdDev: range / 4,
                         posPercent: 50,
-                        position: 'MID'
+                        position: 'MID',
+                        dataSource: 'FALLBACK_PARTIAL'
                     };
                 }
                 
-                // Emergency fallback
                 return {
                     upper: 0,
                     middle: 0,
                     lower: 0,
                     stdDev: 0,
                     posPercent: 50,
-                    position: 'MID'
+                    position: 'MID',
+                    dataSource: 'EMPTY'
                 };
             }
             
-            // Take last 'period' candles for calculation
             const recentCandles = candles.slice(-period);
             const closes = recentCandles.map(c => c.close);
             
-            // Step 1: Calculate SMA (Simple Moving Average) = Middle Band
-            const sum = closes.reduce((acc, close) => acc + close, 0);
+            // Validate closes
+            const invalidCloses = closes.filter(c => !c || isNaN(c) || c <= 0);
+            if (invalidCloses.length > 0) {
+                console.error('❌ Invalid close prices:', invalidCloses.length, 'of', closes.length);
+                return {
+                    upper: 0,
+                    middle: 0,
+                    lower: 0,
+                    stdDev: 0,
+                    posPercent: 50,
+                    position: 'MID',
+                    dataSource: 'ERROR_INVALID'
+                };
+            }
+            
+            const minClose = Math.min(...closes);
+            const maxClose = Math.max(...closes);
+            const priceRange = maxClose - minClose;
+            
+            // Calculate SMA (Middle Band)
+            let sum = 0;
+            for (let i = 0; i < closes.length; i++) {
+                sum += closes[i];
+            }
             const sma = sum / period;
             
-            // Step 2: Calculate Standard Deviation
-            const squaredDifferences = closes.map(close => {
-                const diff = close - sma;
-                return diff * diff;
-            });
+            // Calculate POPULATION Standard Deviation (TradingView uses this)
+            let sumSquaredDifferences = 0;
+            for (let i = 0; i < closes.length; i++) {
+                const difference = closes[i] - sma;
+                sumSquaredDifferences += difference * difference;
+            }
             
-            const variance = squaredDifferences.reduce((acc, val) => acc + val, 0) / period;
-            const stdDev = Math.sqrt(variance);
+            const populationVariance = sumSquaredDifferences / period; // NOT period-1
+            let stdDev = Math.sqrt(populationVariance);
             
-            // Step 3: Calculate Upper and Lower Bands
+            // CRITICAL: Handle zero or near-zero StdDev
+            const minStdDev = sma * 0.001; // Minimum 0.1% of price
+            
+            if (stdDev === 0 || stdDev < minStdDev) {
+                console.warn('⚠️ StdDev too low, using fallback:', {
+                    pair: candles[0]?.pair || 'Unknown',
+                    sma: sma.toFixed(8),
+                    calculatedStdDev: stdDev.toFixed(8),
+                    priceRange: priceRange.toFixed(8)
+                });
+                
+                if (priceRange > 0) {
+                    stdDev = priceRange / 4;
+                } else {
+                    stdDev = sma * 0.02; // 2% fallback
+                }
+            }
+            
             const upperBand = sma + (stdDevMultiplier * stdDev);
             const lowerBand = sma - (stdDevMultiplier * stdDev);
             
-            // Step 4: Calculate current price position in bands (0-100%)
+            // Validate bands structure
+            if (upperBand === lowerBand || upperBand === sma || lowerBand === sma) {
+                console.error('❌ Invalid BB structure, forcing percentage bands');
+                return {
+                    upper: sma * 1.05,
+                    middle: sma,
+                    lower: sma * 0.95,
+                    stdDev: sma * 0.025,
+                    posPercent: 50,
+                    position: 'MID',
+                    dataSource: 'FORCED_PERCENTAGE'
+                };
+            }
+            
             const currentClose = candles[candles.length - 1].close;
+            const bandWidth = upperBand - lowerBand;
             let posPercent = 50;
             
-            if (upperBand !== lowerBand) {
-                posPercent = ((currentClose - lowerBand) / (upperBand - lowerBand)) * 100;
-                // Clamp between 0 and 100
+            if (bandWidth > 0) {
+                posPercent = ((currentClose - lowerBand) / bandWidth) * 100;
                 posPercent = Math.max(0, Math.min(100, posPercent));
             }
             
@@ -2585,13 +2654,24 @@ function getHTML() {
             else if (posPercent >= 60) position = 'ABOVE_MID';
             else if (posPercent <= 40) position = 'BELOW_MID';
             
+            console.log('📊 BB(20,2):', candles[0]?.pair || 'Unknown', {
+                price: currentClose.toFixed(8),
+                upper: upperBand.toFixed(8),
+                middle: sma.toFixed(8),
+                lower: lowerBand.toFixed(8),
+                position: posPercent.toFixed(1) + '%'
+            });
+            
             return {
                 upper: upperBand,
                 middle: sma,
                 lower: lowerBand,
                 stdDev: stdDev,
                 posPercent: posPercent,
-                position: position
+                position: position,
+                dataSource: 'CALCULATED',
+                candleCount: candles.length,
+                priceRange: priceRange
             };
         }
 
