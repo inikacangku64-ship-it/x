@@ -129,23 +129,16 @@ async function getMarketData() {
 // This version calculates both support and resistance regardless of signal type
 // Used early in signal analysis before type is fully determined
 function calculateFibPositionForRecommendation(ticker, high, low, timeframe) {
-  const tfMultiplier = {
-    '15m': 0.5, '30m': 0.7, '1h': 1.0, '2h': 1.3,
-    '4h': 1.8, '1d': 2.5, '3d': 3.5, '1w': 5.0,
-    '2w': 6.5, '1m': 8.0
-  };
-  
-  const multiplier = tfMultiplier[timeframe] || 1.0;
-  const range = (high - low) * multiplier;
+  const range = high - low;
   const last = ticker.last;
   const tolerance = 0.02; // 2%
   
-  // Calculate support levels (from high)
+  // Calculate support levels (from high) - for spot trading
   const support1 = high - (range * 0.236);
   const support2 = high - (range * 0.382);
   const support3 = high - (range * 0.618);
   
-  // Calculate resistance levels (from low)
+  // Calculate resistance levels (from low) - for spot trading
   const resistance1 = low + (range * 0.236);
   const resistance2 = low + (range * 0.382);
   const resistance3 = low + (range * 0.618);
