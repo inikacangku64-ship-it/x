@@ -174,7 +174,7 @@ function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
     (last >= support3 && last <= support1 * 1.03)
   );
   
-  // Check near resistance (upper 75% of BB range)
+  // Check near resistance (top 25% of BB range)
   const nearResistance = (
     Math.abs(last - resistance1) / last < tolerance ||
     Math.abs(last - resistance2) / last < tolerance ||
