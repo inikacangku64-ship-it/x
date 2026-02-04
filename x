@@ -125,34 +125,44 @@ async function getMarketData() {
   }
 }
 
-// Helper function to calculate Fibonacci position for recommendation logic
-// This version calculates both support and resistance regardless of signal type
+// Helper function to calculate Bollinger Band position for recommendation logic
+// This version calculates both support and resistance based on Bollinger Bands
 // Used early in signal analysis before type is fully determined
-function calculateFibPositionForRecommendation(ticker, high, low, timeframe) {
-  const range = high - low;
+function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
   const last = ticker.last;
   const tolerance = 0.02; // 2%
   
-  // Calculate support levels (from high) - for spot trading
-  const support1 = high - (range * 0.236);
-  const support2 = high - (range * 0.382);
-  const support3 = high - (range * 0.618);
+  // Calculate approximate Bollinger Bands based on high/low range
+  const midBand = (high + low) / 2;
+  const bandWidth = high - low;
   
-  // Calculate resistance levels (from low) - for spot trading
-  const resistance1 = low + (range * 0.236);
-  const resistance2 = low + (range * 0.382);
-  const resistance3 = low + (range * 0.618);
+  // Standard Bollinger Bands use 2 standard deviations
+  // Approximate: Upper Band = High, Lower Band = Low, Middle = Average
+  const upperBand = high;
+  const lowerBand = low;
+  
+  // Calculate support levels based on Lower Bollinger Band (LBB)
+  const support1 = lowerBand; // LBB itself
+  const support2 = lowerBand * 0.97; // 3% below LBB
+  const support3 = lowerBand * 0.94; // 6% below LBB
+  
+  // Calculate resistance levels based on Upper Bollinger Band (UBB)
+  const resistance1 = upperBand; // UBB itself
+  const resistance2 = upperBand * 1.02; // 2% above UBB
+  const resistance3 = upperBand * 1.04; // 4% above UBB
   
   const nearSupport = (
     Math.abs(last - support1) / last < tolerance ||
     Math.abs(last - support2) / last < tolerance ||
-    Math.abs(last - support3) / last < tolerance
+    Math.abs(last - support3) / last < tolerance ||
+    last <= lowerBand * 1.02 // Within 2% above lower band
   );
   
   const nearResistance = (
     Math.abs(last - resistance1) / last < tolerance ||
     Math.abs(last - resistance2) / last < tolerance ||
-    Math.abs(last - resistance3) / last < tolerance
+    Math.abs(last - resistance3) / last < tolerance ||
+    last >= upperBand * 0.98 // Within 2% below upper band
   );
   
   return { nearSupport, nearResistance };
@@ -160,20 +170,20 @@ function calculateFibPositionForRecommendation(ticker, high, low, timeframe) {
 
 // New getRecommendation function with 15 status levels
 function getRecommendation(ticker, bullishCount, bearishCount, winRate, trend, timeframe) {
-    const fibPosition = calculateFibPositionForRecommendation(ticker, ticker.high, ticker.low, timeframe);
+    const bbPosition = calculateBBPositionForRecommendation(ticker, ticker.high, ticker.low, timeframe);
     if (trend === 'SIDEWAYS' && winRate < 55) return { text: '➖ SIDEWAYS' };
-    if (bullishCount >= 7 && winRate >= 85 && fibPosition.nearSupport) return { text: '🟢 BUY STRONG' };
-    if (bullishCount >= 6 && winRate >= 75 && fibPosition.nearSupport) return { text: '🟢 BUY NOW' };
+    if (bullishCount >= 7 && winRate >= 85 && bbPosition.nearSupport) return { text: '🟢 BUY STRONG' };
+    if (bullishCount >= 6 && winRate >= 75 && bbPosition.nearSupport) return { text: '🟢 BUY NOW' };
     if (bullishCount >= 5 && winRate >= 65) return { text: '🟢 ACCUMULATE' };
     if (bullishCount >= 4 && winRate >= 55 && trend === 'DOWNTREND') return { text: '🟡 WAIT BUY' };
     if (bullishCount >= 3 && bullishCount <= 4 && winRate >= 50) return { text: '🟠 BUY WATCH' };
-    if (bullishCount >= 4 && !fibPosition.nearSupport) return { text: '🟡 WAIT BUY' };
-    if (bearishCount >= 7 && winRate >= 85 && fibPosition.nearResistance) return { text: '🔴 SELL STRONG' };
-    if (bearishCount >= 6 && winRate >= 75 && fibPosition.nearResistance) return { text: '🔴 SELL NOW' };
+    if (bullishCount >= 4 && !bbPosition.nearSupport) return { text: '🟡 WAIT BUY' };
+    if (bearishCount >= 7 && winRate >= 85 && bbPosition.nearResistance) return { text: '🔴 SELL STRONG' };
+    if (bearishCount >= 6 && winRate >= 75 && bbPosition.nearResistance) return { text: '🔴 SELL NOW' };
     if (bearishCount >= 5 && winRate >= 65) return { text: '🟡 DISTRIBUTED' };
     if (bearishCount >= 4 && winRate >= 55 && trend === 'UPTREND') return { text: '🟡 WAIT SELL' };
     if (bearishCount >= 3 && bearishCount <= 4 && winRate >= 50) return { text: '🟠 SELL WATCH' };
-    if (bearishCount >= 4 && !fibPosition.nearResistance) return { text: '🟡 WAIT SELL' };
+    if (bearishCount >= 4 && !bbPosition.nearResistance) return { text: '🟡 WAIT SELL' };
     if (Math.abs(bullishCount - bearishCount) <= 1) return { text: '🟡 WAIT' };
     return { text: '⚪ HOLD' };
   }
@@ -420,10 +430,10 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h') {
   if (momentum > 0) bullishCount++;
   else if (momentum < 0) bearishCount++;
   
-  // 7. Fib Position
-  const fibPosition = calculateFibPositionForRecommendation(ticker, ticker.high, ticker.low, timeframe);
-  if (fibPosition.nearSupport) bullishCount++;
-  else if (fibPosition.nearResistance) bearishCount++;
+  // 7. BB Position (Support/Resistance)
+  const bbPosition = calculateBBPositionForRecommendation(ticker, ticker.high, ticker.low, timeframe);
+  if (bbPosition.nearSupport) bullishCount++;
+  else if (bbPosition.nearResistance) bearishCount++;
   
   // 8. Trend
   if (trend === 'UPTREND') bullishCount++;
@@ -1946,44 +1956,34 @@ function getHTML() {
             return { level: 'LOW', color: '#22c55e', icon: '🟢', class: 'risk-low' };
         }
         
-        // Calculate Fibonacci Retracement with proper timeframe multipliers
-        function calculateFibonacciRetracement(high, low, last, signalType, timeframe) {
-            // Fibonacci Levels - Standard Fibonacci retracement levels
-            const FIB_236 = 0.236;
-            const FIB_382 = 0.382;
-            const FIB_500 = 0.500;
-            const FIB_618 = 0.618;
-            const FIB_786 = 0.786;
-            
-            const range = high - low;
+        // Calculate Support/Resistance using Bollinger Bands
+        function calculateBollingerBandLevels(high, low, last, signalType, timeframe) {
+            // Use Bollinger Bands for Support/Resistance calculations
+            // Upper Band = High, Lower Band = Low, Middle Band = Average
+            const upperBand = high;
+            const lowerBand = low;
+            const middleBand = (high + low) / 2;
             
             if (signalType === 'BUY') {
-                // BUY: Support levels below current price
-                // For spot trading, we expect the price to be near or above support levels
-                // Support 1 is the highest support (closest to current price)
-                // Support 2 is at 38.2% retracement (middle level)
-                // Support 3 is at 61.8% retracement (deepest level - lowest support)
+                // BUY: Support levels based on Lower Bollinger Band (LBB)
+                // Support levels are calculated below or at the LBB
                 
-                // Calculate support levels using Fibonacci retracement from high to low
-                // Support 1 should be closest to current price but still a support level
-                const fib236Level = high - (range * FIB_236);  // 23.6% retracement
-                const fib382Level = high - (range * FIB_382);  // 38.2% retracement
-                const fib618Level = high - (range * FIB_618);  // 61.8% retracement
+                // Support 1: Current LBB value
+                const support1 = lowerBand;
                 
-                // For spot trading BUY signals, we position supports below or near current price
-                // Support 1 is the shallowest retracement (23.6% - highest support)
-                // Support 2 is 38.2% retracement
-                // Support 3 is 61.8% retracement (deepest - lowest support)
-                const support1 = fib236Level;  // Highest support
-                const support2 = fib382Level;  // Middle support (38.2% Fib)
-                const support3 = fib618Level;  // Deepest support (61.8% Fib)
+                // Support 2: 3% below Support 1
+                const support2 = support1 * 0.97;
                 
-                // Stop Loss: Below Support 3 with 1-2.5% margin for safety
-                const stopLossMargin = 0.02; // 2% margin below Support 3
+                // Support 3: 6% below Support 1 (3% below Support 2)
+                const support3 = support1 * 0.94;
+                
+                // Stop Loss: 2% below Support 3 for risk management
+                const stopLossMargin = 0.02;
                 const stopLoss = support3 * (1 - stopLossMargin);
                 
-                // Target for R/R calculation: Recent high or above
-                const target = high;  // Target at recent high
+                // Target: Middle Band or Upper Band for profit target
+                // Using a realistic target based on Bollinger Band range
+                const target = middleBand + (upperBand - middleBand) * 0.5; // Target between middle and upper
                 
                 return {
                     type: 'SUPPORT',
@@ -1995,27 +1995,20 @@ function getHTML() {
                 };
                 
             } else { // SELL
-                // SELL: Resistance levels above current price
-                // For spot trading, we expect the price to be near or below resistance levels
-                // Resistance 1 is the lowest resistance (closest to current price)
-                // Resistance 2 is at 38.2% from low (middle level)
-                // Resistance 3 is at 61.8% from low (highest level)
+                // SELL: Resistance levels based on Upper Bollinger Band (UBB)
+                // Resistance levels are calculated at or above the UBB
                 
-                // Calculate resistance levels using Fibonacci extension from low
-                const fib236Level = low + (range * FIB_236);  // 23.6% from low
-                const fib382Level = low + (range * FIB_382);  // 38.2% from low
-                const fib618Level = low + (range * FIB_618);  // 61.8% from low
+                // Resistance 1: Current UBB value
+                const resistance1 = upperBand;
                 
-                // For spot trading SELL signals, resistance levels increase
-                // Resistance 1 is lowest (23.6% - closest to current)
-                // Resistance 2 is 38.2% from low
-                // Resistance 3 is 61.8% from low (highest resistance)
-                const resistance1 = fib236Level;  // Lowest resistance
-                const resistance2 = fib382Level;  // Middle resistance (38.2% Fib)
-                const resistance3 = fib618Level;  // Highest resistance (61.8% Fib)
+                // Resistance 2: 2.2% above Resistance 1
+                const resistance2 = resistance1 * 1.022;
                 
-                // Take Profit: Above Resistance 3 to ensure profitability
-                const takeProfitMargin = 0.02; // 2% above Resistance 3
+                // Resistance 3: 4.5% above Resistance 1 (2.3% above Resistance 2)
+                const resistance3 = resistance1 * 1.045;
+                
+                // Take Profit: 2% above Resistance 3 for reasonable gains
+                const takeProfitMargin = 0.02;
                 const takeProfit = resistance3 * (1 + takeProfitMargin);
                 
                 return {
@@ -2029,27 +2022,27 @@ function getHTML() {
             }
         }
         
-        // Calculate Target/SL/Risk using Fibonacci Retracement
+        // Calculate Target/SL/Risk using Bollinger Bands
         function calculateTargetSLRisk(ticker, signal, timeframe = '1h') {
             const last = ticker.last;
             const high = ticker.high;
             const low = ticker.low;
             
-            // Use the new Fibonacci Retracement function
-            const fib = calculateFibonacciRetracement(high, low, last, signal.type, timeframe);
+            // Use the new Bollinger Band Levels function
+            const bb = calculateBollingerBandLevels(high, low, last, signal.type, timeframe);
             
             let result = {
                 targets: [],
-                stopLoss: fib.stopLoss,
+                stopLoss: bb.stopLoss,
                 riskReward: 0,
                 entry: last
             };
             
             if (signal.type === 'SELL') {
                 result.targets = [
-                    { label: 'Resistance 1', value: fib.level1 },
-                    { label: 'Resistance 2 (Fib 38.2%)', value: fib.level2 },
-                    { label: 'Resistance 3 (Fib 61.8%)', value: fib.level3 }
+                    { label: 'Resistance 1', value: bb.level1 },
+                    { label: 'Resistance 2', value: bb.level2 },
+                    { label: 'Resistance 3', value: bb.level3 }
                 ];
                 
                 // For SELL in spot trading:
@@ -2057,26 +2050,26 @@ function getHTML() {
                 // Take Profit: Above Resistance 3 (stored in stopLoss field)
                 // Risk: Distance from entry to Resistance 3 (if price goes up)
                 // Reward: Distance from Take Profit to entry (profit when selling)
-                const takeProfit = fib.stopLoss; // Take profit stored in stopLoss field for SELL
-                const risk = Math.abs(fib.level3 - last); // Risk if price goes up to Resistance 3
+                const takeProfit = bb.stopLoss; // Take profit stored in stopLoss field for SELL
+                const risk = Math.abs(bb.level3 - last); // Risk if price goes up to Resistance 3
                 const reward = Math.abs(takeProfit - last); // Reward from current to take profit
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
                 
             } else if (signal.type === 'BUY') {
                 result.targets = [
-                    { label: 'Support 1', value: fib.level1 },
-                    { label: 'Support 2 (Fib 38.2%)', value: fib.level2 },
-                    { label: 'Support 3 (Fib 61.8%)', value: fib.level3 }
+                    { label: 'Support 1', value: bb.level1 },
+                    { label: 'Support 2', value: bb.level2 },
+                    { label: 'Support 3', value: bb.level3 }
                 ];
                 
                 // For BUY in spot trading:
                 // Entry: Current price (buying now)
-                // Target: Recent high
+                // Target: Based on Bollinger Band range
                 // Stop Loss: Below Support 3 with margin
                 // Risk: Distance from entry to stop loss
                 // Reward: Distance from entry to target
-                const target = fib.target;
-                const risk = Math.abs(last - fib.stopLoss); // Risk if price drops to stop loss
+                const target = bb.target;
+                const risk = Math.abs(last - bb.stopLoss); // Risk if price drops to stop loss
                 const reward = Math.abs(target - last); // Reward if price reaches target
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
             }
@@ -2084,11 +2077,11 @@ function getHTML() {
             return result;
         }
         
-        // Helper function: Calculate Fib Position based on signal type
+        // Helper function: Calculate BB Position based on signal type
         // This version uses signal.type to determine which levels to check
         // Used in win rate calculation where signal type is already known
-        function calculateFibPosition(ticker, signal, timeframe) {
-            const fib = calculateFibonacciRetracement(ticker.high, ticker.low, ticker.last, signal.type, timeframe);
+        function calculateBBPosition(ticker, signal, timeframe) {
+            const bb = calculateBollingerBandLevels(ticker.high, ticker.low, ticker.last, signal.type, timeframe);
             const last = ticker.last;
             const tolerance = 0.02; // 2%
             
@@ -2096,18 +2089,20 @@ function getHTML() {
             let nearResistance = false;
             
             if (signal.type === 'BUY') {
-                // Cek apakah dekat support levels
+                // Check if near support levels
                 nearSupport = (
-                    Math.abs(last - fib.level1) / last < tolerance ||
-                    Math.abs(last - fib.level2) / last < tolerance ||
-                    Math.abs(last - fib.level3) / last < tolerance
+                    Math.abs(last - bb.level1) / last < tolerance ||
+                    Math.abs(last - bb.level2) / last < tolerance ||
+                    Math.abs(last - bb.level3) / last < tolerance ||
+                    last <= bb.level1 * 1.02 // Within 2% above lowest support level
                 );
             } else if (signal.type === 'SELL') {
-                // Cek apakah dekat resistance levels
+                // Check if near resistance levels
                 nearResistance = (
-                    Math.abs(last - fib.level1) / last < tolerance ||
-                    Math.abs(last - fib.level2) / last < tolerance ||
-                    Math.abs(last - fib.level3) / last < tolerance
+                    Math.abs(last - bb.level1) / last < tolerance ||
+                    Math.abs(last - bb.level2) / last < tolerance ||
+                    Math.abs(last - bb.level3) / last < tolerance ||
+                    last >= bb.level1 * 0.98 // Within 2% below highest resistance level
                 );
             }
             
@@ -2145,8 +2140,8 @@ function getHTML() {
             const volumeSpike = ind.volumeSpike;
             const volStatus = (volumeSpike && priceUp) ? 'bullish' : (volumeSpike && priceDown) ? 'bearish' : 'neutral';
             
-            const fibPosition = calculateFibPosition(ticker, signal, timeframe);
-            const fibStatus = fibPosition.nearSupport ? 'bullish' : fibPosition.nearResistance ? 'bearish' : 'neutral';
+            const bbPositionStatus = calculateBBPosition(ticker, signal, timeframe);
+            const srStatus = bbPositionStatus.nearSupport ? 'bullish' : bbPositionStatus.nearResistance ? 'bearish' : 'neutral';
             
             const trendStatus = trend === 'UPTREND' ? 'bullish' : trend === 'DOWNTREND' ? 'bearish' : 'neutral';
             
@@ -2170,7 +2165,7 @@ function getHTML() {
                     macd: macdStatus === 'bullish' ? '✅' : macdStatus === 'bearish' ? '❌' : '➖',
                     volume: volStatus === 'bullish' ? '✅' : volStatus === 'bearish' ? '❌' : '➖',
                     momentum: momentumStatus === 'bullish' ? '✅' : momentumStatus === 'bearish' ? '❌' : '➖',
-                    fib: fibStatus === 'bullish' ? '✅' : fibStatus === 'bearish' ? '❌' : '➖',
+                    fib: srStatus === 'bullish' ? '✅' : srStatus === 'bearish' ? '❌' : '➖',
                     trend: trendStatus === 'bullish' ? '✅' : trendStatus === 'bearish' ? '❌' : '➖'
                 }
             };
@@ -2182,8 +2177,8 @@ function getHTML() {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
                         🔴 Resistance 1: \${formatSupportResistance(targetData.targets[0].value)}<br>
-                        🔴 Resistance 2 (Fib 38.2%): \${formatSupportResistance(targetData.targets[1].value)}<br>
-                        🔴 Resistance 3 (Fib 61.8%): \${formatSupportResistance(targetData.targets[2].value)}<br>
+                        🔴 Resistance 2: \${formatSupportResistance(targetData.targets[1].value)}<br>
+                        🔴 Resistance 3: \${formatSupportResistance(targetData.targets[2].value)}<br>
                         💰 Take Profit: \${formatSupportResistance(targetData.stopLoss)}<br>
                         💎 R/R: 1:\${targetData.riskReward}
                     </div>
@@ -2192,8 +2187,8 @@ function getHTML() {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
                         🟢 Support 1: \${formatSupportResistance(targetData.targets[0].value)}<br>
-                        🟢 Support 2 (Fib 38.2%): \${formatSupportResistance(targetData.targets[1].value)}<br>
-                        🟢 Support 3 (Fib 61.8%): \${formatSupportResistance(targetData.targets[2].value)}<br>
+                        🟢 Support 2: \${formatSupportResistance(targetData.targets[1].value)}<br>
+                        🟢 Support 3: \${formatSupportResistance(targetData.targets[2].value)}<br>
                         🛑 Stop Loss: \${formatSupportResistance(targetData.stopLoss)}<br>
                         💎 R/R: 1:\${targetData.riskReward}
                     </div>
@@ -2201,7 +2196,6 @@ function getHTML() {
             }
         }
         
-        // Format Win Rate display
         // Format Win Rate display
         function formatWinRateDisplay(winRateData) {
             const details = winRateData.details;
@@ -2213,7 +2207,7 @@ function getHTML() {
                     <strong>\${winRateData.winRate}%</strong> \${winRateData.accuracy}<br>
                     ─────────<br>
                     RSI: \${details.rsi} StochRSI: \${details.stochRSI} BB: \${details.bb}<br>
-                    MACD: \${details.macd} Vol: \${details.volume} Fib: \${details.fib}<br>
+                    MACD: \${details.macd} Vol: \${details.volume} S/R: \${details.fib}<br>
                     <strong>\${count}/\${winRateData.total} Indicators</strong>
                 </div>
             \`;
@@ -2482,8 +2476,8 @@ function getHTML() {
             const momentumIcon = momentum > 0 ? '↗️' : momentum < 0 ? '↘️' : '➡️';
             signalsList.push(\`<div class="signal-item \${momentumClass}">\${momentumIcon} Momentum: \${momentum > 0 ? '+' : ''}\${momentum.toFixed(1)}%</div>\`);
             
-            // 7. Fibonacci retracement - Used for Target/SL/Risk calculation
-            signalsList.push(\`<div class="signal-item neutral">📐 Fib: Target/SL/Risk</div>\`);
+            // 7. Bollinger Bands - Used for Target/SL/Risk calculation
+            signalsList.push(\`<div class="signal-item neutral">📐 BB: Target/SL/Risk</div>\`);
             
             // 8. Trend - Display trend
             const trendClass = trend === 'UPTREND' ? 'bullish' : trend === 'DOWNTREND' ? 'bearish' : 'neutral';
@@ -2494,10 +2488,10 @@ function getHTML() {
             return \`<div class="signals-list">\${signalsList.join('')}</div>\`;
         }
         
-        // Format technical indicators vertically (8 indicators + Fib levels)
+        // Format technical indicators vertically (8 indicators + BB levels)
         function formatTechnicalIndicators(signal, ticker, timeframe) {
             const ind = signal.indicators;
-            const fib = calculateFibonacciRetracement(ticker.high, ticker.low, ticker.last, signal.type, timeframe);
+            const bb = calculateBollingerBandLevels(ticker.high, ticker.low, ticker.last, signal.type, timeframe);
             
             const techList = [];
             
@@ -2508,17 +2502,17 @@ function getHTML() {
             techList.push(\`<div class="tech-item">Volume: \${ind.volumeRatio}x Avg \${ind.volumeSpike ? '🔥 Spike' : ''}</div>\`);
             techList.push(\`<div class="tech-item">Momentum: \${ind.momentum}% \${parseFloat(ind.momentum) > 0 ? '↗️' : parseFloat(ind.momentum) < 0 ? '↘️' : '➡️'}</div>\`);
             
-            // Fibonacci levels
+            // Bollinger Band levels
             if (signal.type === 'BUY') {
-                techList.push(\`<div class="tech-item">Fib 0% (Support 1): \${formatSupportResistance(fib.level1)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 38.2% (Support 2): \${formatSupportResistance(fib.level2)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 61.8% (Support 3): \${formatSupportResistance(fib.level3)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib Position: Near Support</div>\`);
+                techList.push(\`<div class="tech-item">BB Support 1: \${formatSupportResistance(bb.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">BB Support 2: \${formatSupportResistance(bb.level2)}</div>\`);
+                techList.push(\`<div class="tech-item">BB Support 3: \${formatSupportResistance(bb.level3)}</div>\`);
+                techList.push(\`<div class="tech-item">BB Position: Near Support</div>\`);
             } else {
-                techList.push(\`<div class="tech-item">Fib 0% (Resistance 1): \${formatSupportResistance(fib.level1)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 38.2% (Resistance 2): \${formatSupportResistance(fib.level2)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 61.8% (Resistance 3): \${formatSupportResistance(fib.level3)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib Position: Near Resistance</div>\`);
+                techList.push(\`<div class="tech-item">BB Resistance 1: \${formatSupportResistance(bb.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">BB Resistance 2: \${formatSupportResistance(bb.level2)}</div>\`);
+                techList.push(\`<div class="tech-item">BB Resistance 3: \${formatSupportResistance(bb.level3)}</div>\`);
+                techList.push(\`<div class="tech-item">BB Position: Near Resistance</div>\`);
             }
             
             techList.push(\`<div class="tech-item">Trend: \${ind.trend} \${ind.trend === 'UPTREND' ? '📈' : ind.trend === 'DOWNTREND' ? '📉' : '⚪'}</div>\`);
