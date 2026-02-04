@@ -41,15 +41,21 @@ function updateCandleHistory(ticker, timeframes) {
             lastCandleTime[tf][ticker.pair] = now;
         }
         
+        const currentCandles = candleHistory[tf][ticker.pair];
         const lastTime = lastCandleTime[tf][ticker.pair];
         const timeDiff = now - lastTime;
         
         // Create new candle or update existing
         if (timeDiff >= tfMs) {
-            candleHistory[tf][ticker.pair].push({
-                open: ticker.last,
-                high: ticker.high,
-                low: ticker.low,
+            // Use previous candle's close as open, or ticker.last if no history
+            const prevClose = currentCandles.length > 0 
+                ? currentCandles[currentCandles.length - 1].close 
+                : ticker.last;
+            
+            currentCandles.push({
+                open: prevClose,
+                high: ticker.last,
+                low: ticker.last,
                 close: ticker.last,
                 volume: ticker.volume,
                 timestamp: now
@@ -57,16 +63,15 @@ function updateCandleHistory(ticker, timeframes) {
             lastCandleTime[tf][ticker.pair] = now;
             
             // Limit to 100 candles per timeframe
-            if (candleHistory[tf][ticker.pair].length > 100) {
-                candleHistory[tf][ticker.pair].shift();
+            if (currentCandles.length > 100) {
+                currentCandles.shift();
             }
         } else {
             // Update current candle
-            const currentCandles = candleHistory[tf][ticker.pair];
             if (currentCandles.length > 0) {
                 const lastCandle = currentCandles[currentCandles.length - 1];
-                lastCandle.high = Math.max(lastCandle.high, ticker.high);
-                lastCandle.low = Math.min(lastCandle.low, ticker.low);
+                lastCandle.high = Math.max(lastCandle.high, ticker.last);
+                lastCandle.low = Math.min(lastCandle.low, ticker.last);
                 lastCandle.close = ticker.last;
                 lastCandle.volume = ticker.volume;
             }
@@ -479,7 +484,11 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = nu
   
   const stochRSI = pricePosition;
   
-  const volatility = ((ticker.high - ticker.low) / ticker.low) * 100 * tfConfig.volatility;
+  // Calculate volatility safely to avoid division by zero
+  const avgPrice = (ticker.high + ticker.low) / 2;
+  const volatility = avgPrice > 0 
+    ? ((ticker.high - ticker.low) / avgPrice) * 100 * tfConfig.volatility 
+    : 0;
   
   // Calculate Bollinger Bands - use true BB(20,2) when candles available
   let bbSignal = 'NEUTRAL';
