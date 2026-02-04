@@ -2358,40 +2358,58 @@ function getHTML() {
         
         // Calculate Support/Resistance using Bollinger Bands (20, 2)
         // BB Settings: Period 20, Standard Deviation 2
-        // Used for Target/SL/Risk calculation following Indodax price movements
+        // CRITICAL: Based on PRICE POSITION in BB, NOT signal type
         function calculateBollingerBandLevels(high, low, last, signalType, timeframe) {
             // Estimate BB(20,2) from 24h range based on Indodax price movements
             const range24h = high - low;
             const midPrice = (high + low) / 2;
             // High/Low typically represent ~3σ movement, so σ ≈ range / 6
             const estimatedStdDev = range24h / 6;
-            const upperBand = midPrice + (2 * estimatedStdDev);  // Upper BB (SMA + 2σ)
-            const lowerBand = midPrice - (2 * estimatedStdDev);  // Lower BB (SMA - 2σ)
-            const middleBand = midPrice;
-            const bandRange = upperBand - lowerBand;
+            let upperBand = midPrice + (2 * estimatedStdDev);  // Upper BB (SMA + 2σ)
+            let lowerBand = midPrice - (2 * estimatedStdDev);  // Lower BB (SMA - 2σ)
+            let middleBand = midPrice;
+            const stdDev = estimatedStdDev;
             
-            if (signalType === 'BUY') {
-                // BUY: Support levels based on Lower Bollinger Band (LBB)
-                // Support levels are calculated using LBB as the base reference
+            // Validate BB levels
+            if (upperBand <= middleBand || middleBand <= lowerBand) {
+                console.error('❌ Invalid BB levels:', { 
+                    upper: upperBand, 
+                    middle: middleBand, 
+                    lower: lowerBand,
+                    currentPrice: last
+                });
+                const range = Math.max(high - low, last * 0.1);
+                upperBand = last + (range * 0.5);
+                middleBand = last;
+                lowerBand = last - (range * 0.5);
+            }
+            
+            // ========================================
+            // CRITICAL: Determine zone by PRICE POSITION in BB
+            // NOT by signal type!
+            // ========================================
+            
+            const pricePosition = ((last - lowerBand) / (upperBand - lowerBand)) * 100;
+            
+            // Price in BULLISH ZONE (>= middle) - Show SUPPORT levels BELOW price
+            if (last >= middleBand || pricePosition >= 50) {
+                let support1 = middleBand;
+                let support2 = lowerBand;
+                let support3 = lowerBand - stdDev;
+                let stopLoss = lowerBand - (stdDev * 1.2);
                 
-                // For BUY signals, we want supports that are below current price
-                // but realistic and not too far away
-                // Support 1: LBB + small margin (closest support)
-                const support1 = lowerBand + (bandRange * 0.05); // 5% above LBB
+                // VALIDATION: All levels MUST be BELOW current price
+                if (support1 >= last) support1 = last * 0.98;
+                if (support2 >= support1) support2 = support1 * 0.95;
+                if (support3 >= support2) support3 = support2 * 0.93;
+                if (stopLoss >= support3) stopLoss = support3 * 0.97;
                 
-                // Support 2: 3.2% below Support 1
-                const support2 = support1 * 0.968;
+                // Ensure all are below price
+                support1 = Math.min(support1, last * 0.98);
+                support2 = Math.min(support2, last * 0.95);
+                support3 = Math.min(support3, last * 0.92);
+                stopLoss = Math.min(stopLoss, last * 0.90);
                 
-                // Support 3: 6.5% below Support 1
-                const support3 = support1 * 0.935;
-                
-                // Stop Loss: 1.7% below Support 3 for risk management
-                const stopLossMargin = 0.017;
-                const stopLoss = support3 * (1 - stopLossMargin);
-                
-                // Target: Upper Band for realistic profit target
-                // For BUY signals, aim for the upper band
-                // This ensures a good R/R ratio (typically 1:2.0 to 1:3.0)
                 const target = upperBand;
                 
                 return {
@@ -2400,40 +2418,50 @@ function getHTML() {
                     level2: support2,
                     level3: support3,
                     stopLoss: stopLoss,
-                    target: target
+                    target: target,
+                    zone: 'BULLISH',
+                    pricePosition: pricePosition.toFixed(1),
+                    bbLevels: { upper: upperBand, middle: middleBand, lower: lowerBand }
                 };
+            }
+            
+            // Price in BEARISH ZONE (< middle) - Show RESISTANCE levels ABOVE price
+            else {
+                let resistance1 = middleBand;
+                let resistance2 = upperBand;
+                let resistance3 = upperBand + stdDev;
+                let stopLoss = upperBand + (stdDev * 1.2);
                 
-            } else { // SELL
-                // SELL: Resistance levels based on Upper Bollinger Band (UBB)
-                // Resistance levels are calculated at or above the UBB
+                // VALIDATION: All levels MUST be ABOVE current price
+                if (resistance1 <= last) resistance1 = last * 1.02;
+                if (resistance2 <= resistance1) resistance2 = resistance1 * 1.05;
+                if (resistance3 <= resistance2) resistance3 = resistance2 * 1.07;
+                if (stopLoss <= resistance3) stopLoss = resistance3 * 1.03;
                 
-                // For SELL signals, we want resistances above current price
-                // Resistance 1: UBB - small margin (closest resistance)
-                const resistance1 = upperBand - (bandRange * 0.03); // 3% below UBB
+                // Ensure all are above price
+                resistance1 = Math.max(resistance1, last * 1.02);
+                resistance2 = Math.max(resistance2, last * 1.05);
+                resistance3 = Math.max(resistance3, last * 1.08);
+                stopLoss = Math.max(stopLoss, last * 1.10);
                 
-                // Resistance 2: 2.2% above Resistance 1
-                const resistance2 = resistance1 * 1.022;
-                
-                // Resistance 3: 4.4% above Resistance 1
-                const resistance3 = resistance1 * 1.044;
-                
-                // Take Profit: 1.7% above Resistance 3 for reasonable gains
-                const takeProfitMargin = 0.017;
-                const takeProfit = resistance3 * (1 + takeProfitMargin);
+                const target = stopLoss; // For SELL/bearish, target is stop loss
                 
                 return {
                     type: 'RESISTANCE',
                     level1: resistance1,
                     level2: resistance2,
                     level3: resistance3,
-                    stopLoss: takeProfit,  // For SELL signals, this field holds Take Profit value
-                    target: takeProfit  // Target is take profit level
+                    stopLoss: stopLoss,
+                    target: target,
+                    zone: 'BEARISH',
+                    pricePosition: pricePosition.toFixed(1),
+                    bbLevels: { upper: upperBand, middle: middleBand, lower: lowerBand }
                 };
             }
         }
         
         // Calculate Target/SL/Risk using Bollinger Bands (20, 2)
-        // Target/SL/Risk follows new indicator signals and uses BB 20,2 for support/resistance
+        // Target/SL/Risk now based on PRICE POSITION in BB, not signal type
         // Based on Indodax price movements for accurate support and resistance levels
         function calculateTargetSLRisk(ticker, signal, timeframe = '1h') {
             const last = ticker.last;
@@ -2441,48 +2469,73 @@ function getHTML() {
             const low = ticker.low;
             
             // Use the Bollinger Band Levels function (BB 20,2) for support/resistance
+            // Now determines zone based on price position in BB
             const bb = calculateBollingerBandLevels(high, low, last, signal.type, timeframe);
             
             let result = {
                 targets: [],
                 stopLoss: bb.stopLoss,
                 riskReward: 0,
-                entry: last
+                entry: last,
+                zone: bb.zone,
+                pricePosition: bb.pricePosition
             };
             
-            if (signal.type === 'SELL') {
+            // Display based on BB zone (price position), not signal type
+            if (bb.type === 'RESISTANCE') {
+                // Price in bearish zone - show resistances
                 result.targets = [
-                    { label: 'Resistance 1', value: bb.level1 },
-                    { label: 'Resistance 2', value: bb.level2 },
-                    { label: 'Resistance 3', value: bb.level3 }
+                    { 
+                        label: 'Resistance 1', 
+                        value: bb.level1,
+                        percent: ((bb.level1 - last) / last * 100).toFixed(2)
+                    },
+                    { 
+                        label: 'Resistance 2', 
+                        value: bb.level2,
+                        percent: ((bb.level2 - last) / last * 100).toFixed(2)
+                    },
+                    { 
+                        label: 'Resistance 3', 
+                        value: bb.level3,
+                        percent: ((bb.level3 - last) / last * 100).toFixed(2)
+                    }
                 ];
                 
-                // For SELL in spot trading:
-                // Entry: Current price (selling now)
-                // Take Profit: Above Resistance 3 (stored in stopLoss field)
-                // Risk: Distance from entry to Resistance 3 (if price goes up)
-                // Reward: Distance from Take Profit to entry (profit when selling)
-                const takeProfit = bb.stopLoss; // Take profit stored in stopLoss field for SELL
-                const risk = Math.abs(bb.level3 - last); // Risk if price goes up to Resistance 3
-                const reward = Math.abs(takeProfit - last); // Reward from current to take profit
+                // For bearish zone:
+                // Stop Loss: Above resistances (for short positions)
+                // Risk: Distance from entry to stop loss
+                // Reward: Distance from entry to lower BB
+                const risk = Math.abs(bb.stopLoss - last);
+                const reward = Math.abs(last - bb.bbLevels.lower);
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
                 
-            } else if (signal.type === 'BUY') {
+            } else {
+                // Price in bullish zone - show supports
                 result.targets = [
-                    { label: 'Support 1', value: bb.level1 },
-                    { label: 'Support 2', value: bb.level2 },
-                    { label: 'Support 3', value: bb.level3 }
+                    { 
+                        label: 'Support 1', 
+                        value: bb.level1,
+                        percent: ((bb.level1 - last) / last * 100).toFixed(2)
+                    },
+                    { 
+                        label: 'Support 2', 
+                        value: bb.level2,
+                        percent: ((bb.level2 - last) / last * 100).toFixed(2)
+                    },
+                    { 
+                        label: 'Support 3', 
+                        value: bb.level3,
+                        percent: ((bb.level3 - last) / last * 100).toFixed(2)
+                    }
                 ];
                 
-                // For BUY in spot trading:
-                // Entry: Current price (buying now)
-                // Target: Based on Bollinger Band range
-                // Stop Loss: Below Support 3 with margin
+                // For bullish zone:
+                // Stop Loss: Below supports
                 // Risk: Distance from entry to stop loss
-                // Reward: Distance from entry to target
-                const target = bb.target;
-                const risk = Math.abs(last - bb.stopLoss); // Risk if price drops to stop loss
-                const reward = Math.abs(target - last); // Reward if price reaches target
+                // Reward: Distance from entry to upper BB
+                const risk = Math.abs(last - bb.stopLoss);
+                const reward = Math.abs(bb.bbLevels.upper - last);
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
             }
             
@@ -2586,25 +2639,39 @@ function getHTML() {
         }
         
         // Format Target/SL/Risk display
+        // Now displays based on BB zone (price position), not signal type
         function formatTargetSLDisplay(targetData, signal) {
-            if (signal.type === 'SELL') {
+            // Check zone from targetData (based on BB position)
+            if (targetData.zone === 'BEARISH') {
+                // Price in bearish zone - show resistance levels with red styling
                 return \`
-                    <div style="font-size:11px;line-height:1.4;">
-                        🔴 Resistance 1: \${formatSupportResistance(targetData.targets[0].value)}<br>
-                        🔴 Resistance 2: \${formatSupportResistance(targetData.targets[1].value)}<br>
-                        🔴 Resistance 3: \${formatSupportResistance(targetData.targets[2].value)}<br>
-                        💰 Take Profit: \${formatSupportResistance(targetData.stopLoss)}<br>
-                        💎 R/R: 1:\${targetData.riskReward}
+                    <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 15px; border-radius: 10px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);">
+                        <div style="color: white; font-size: 11px; line-height: 1.5; margin-bottom: 8px; font-weight: 600; opacity: 0.95;">
+                            📊 Resistance Levels (Price in Bearish Zone)
+                        </div>
+                        <div style="color: white; font-size: 11px; line-height: 1.4;">
+                            🔴 Resistance 1: \${formatSupportResistance(targetData.targets[0].value)} <span style="opacity: 0.85;">(+\${targetData.targets[0].percent}%)</span><br>
+                            🔴 Resistance 2: \${formatSupportResistance(targetData.targets[1].value)} <span style="opacity: 0.85;">(+\${targetData.targets[1].percent}%)</span><br>
+                            🔴 Resistance 3: \${formatSupportResistance(targetData.targets[2].value)} <span style="opacity: 0.85;">(+\${targetData.targets[2].percent}%)</span><br>
+                            🛑 Stop Loss: \${formatSupportResistance(targetData.stopLoss)} <span style="opacity: 0.85;">(+\${((targetData.stopLoss - targetData.entry) / targetData.entry * 100).toFixed(2)}%)</span><br>
+                            <span style="font-weight: 700; margin-top: 5px; display: inline-block;">💎 R/R: 1:\${targetData.riskReward}</span>
+                        </div>
                     </div>
                 \`;
             } else {
+                // Price in bullish zone - show support levels with green styling
                 return \`
-                    <div style="font-size:11px;line-height:1.4;">
-                        🟢 Support 1: \${formatSupportResistance(targetData.targets[0].value)}<br>
-                        🟢 Support 2: \${formatSupportResistance(targetData.targets[1].value)}<br>
-                        🟢 Support 3: \${formatSupportResistance(targetData.targets[2].value)}<br>
-                        🛑 Stop Loss: \${formatSupportResistance(targetData.stopLoss)}<br>
-                        💎 R/R: 1:\${targetData.riskReward}
+                    <div style="background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); padding: 15px; border-radius: 10px; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);">
+                        <div style="color: white; font-size: 11px; line-height: 1.5; margin-bottom: 8px; font-weight: 600; opacity: 0.95;">
+                            📊 Support Levels (Price in Bullish Zone)
+                        </div>
+                        <div style="color: white; font-size: 11px; line-height: 1.4;">
+                            🟢 Support 1: \${formatSupportResistance(targetData.targets[0].value)} <span style="opacity: 0.85;">(\${targetData.targets[0].percent}%)</span><br>
+                            🟢 Support 2: \${formatSupportResistance(targetData.targets[1].value)} <span style="opacity: 0.85;">(\${targetData.targets[1].percent}%)</span><br>
+                            🟢 Support 3: \${formatSupportResistance(targetData.targets[2].value)} <span style="opacity: 0.85;">(\${targetData.targets[2].percent}%)</span><br>
+                            🛑 Stop Loss: \${formatSupportResistance(targetData.stopLoss)} <span style="opacity: 0.85;">(\${((targetData.stopLoss - targetData.entry) / targetData.entry * 100).toFixed(2)}%)</span><br>
+                            <span style="font-weight: 700; margin-top: 5px; display: inline-block;">💎 R/R: 1:\${targetData.riskReward}</span>
+                        </div>
                     </div>
                 \`;
             }
