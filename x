@@ -2372,7 +2372,7 @@ function getHTML() {
             
             // Validate BB levels
             if (upperBand <= middleBand || middleBand <= lowerBand) {
-                console.error('❌ Invalid BB levels:', { 
+                console.warn('⚠️ Invalid BB levels detected, using fallback calculation:', { 
                     upper: upperBand, 
                     middle: middleBand, 
                     lower: lowerBand,
@@ -2444,7 +2444,8 @@ function getHTML() {
                 resistance3 = Math.max(resistance3, last * 1.08);
                 stopLoss = Math.max(stopLoss, last * 1.10);
                 
-                const target = stopLoss; // For SELL/bearish, target is stop loss
+                // For bearish zone, target represents take profit level (same as stop loss position)
+                const target = stopLoss;
                 
                 return {
                     type: 'RESISTANCE',
