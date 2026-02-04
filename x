@@ -2024,12 +2024,10 @@ function getHTML() {
         // Calculate Fibonacci Retracement with proper timeframe multipliers
         function calculateFibonacciRetracement(high, low, last, signalType, timeframe) {
             // Fibonacci Levels
-            const FIB_LEVELS = {
-                0: 0.0,
-                382: 0.382,
-                618: 0.618,
-                1000: 1.0
-            };
+            const FIB_0 = 0.0;
+            const FIB_382 = 0.382;
+            const FIB_618 = 0.618;
+            const FIB_1000 = 1.0;
             
             // Timeframe multiplier untuk range
             const tfMultiplier = {
@@ -2043,14 +2041,14 @@ function getHTML() {
             
             if (signalType === 'BUY') {
                 // BUY: Support levels from high retracing down
-                // Support 1: Based on Fibonacci Level 0% (lowest retracement = high)
-                // Support 2: Based on Fibonacci Level 38.2%
-                // Support 3: Based on Fibonacci Level 61.8%
-                const support1 = high - (range * FIB_LEVELS[0]);     // 0% = high
-                const support2 = high - (range * FIB_LEVELS[382]);   // 38.2%
-                const support3 = high - (range * FIB_LEVELS[618]);   // 61.8%
+                // Support 1: Based on Fibonacci Level 0% (at high, minimal retracement)
+                // Support 2: Based on Fibonacci Level 38.2% (38.2% retracement from high)
+                // Support 3: Based on Fibonacci Level 61.8% (61.8% retracement from high)
+                const support1 = high - (range * FIB_0);     // 0% retracement = high
+                const support2 = high - (range * FIB_382);   // 38.2% retracement
+                const support3 = high - (range * FIB_618);   // 61.8% retracement
                 
-                // Stop Loss: Lower than Support 3
+                // Stop Loss: Below Support 3 (deepest support level)
                 const stopLoss = support3 - (range * 0.05);
                 
                 return {
@@ -2063,14 +2061,17 @@ function getHTML() {
                 
             } else { // SELL
                 // SELL: Resistance levels from low extending up
-                // Resistance 1: Based on Fibonacci Level 100% (highest extension = high)
-                // Resistance 2: Based on Fibonacci Level 38.2%
-                // Resistance 3: Based on Fibonacci Level 61.8%
-                const resistance1 = low + (range * FIB_LEVELS[1000]); // 100% = high
-                const resistance2 = low + (range * FIB_LEVELS[382]);  // 38.2%
-                const resistance3 = low + (range * FIB_LEVELS[618]);  // 61.8%
+                // For SELL signals, we look for resistance on the way down
+                // The requirements show R1 < R2 < R3, meaning ascending order
+                // Resistance 1: Lowest resistance (closer to current price)
+                // Resistance 2: 38.2% level
+                // Resistance 3: 61.8% level
+                // Take Profit is above R3
+                const resistance1 = low + (range * FIB_0);    // Starting from low (0% = low)
+                const resistance2 = low + (range * FIB_382);  // 38.2% from low
+                const resistance3 = low + (range * FIB_618);  // 61.8% from low
                 
-                // Take Profit: Above Resistance 3
+                // Take Profit: Above Resistance 3 (extends beyond highest resistance)
                 const takeProfit = resistance3 + (range * 0.05);
                 
                 return {
@@ -2078,7 +2079,7 @@ function getHTML() {
                     level1: resistance1,
                     level2: resistance2,
                     level3: resistance3,
-                    stopLoss: takeProfit  // For SELL signals, stopLoss field holds Take Profit
+                    stopLoss: takeProfit  // For SELL signals, this field holds Take Profit value
                 };
             }
         }
@@ -2580,7 +2581,7 @@ function getHTML() {
                 techList.push(\`<div class="tech-item">Fib 61.8% (Support 3): \${formatPrice(fib.level3)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib Position: Near Support</div>\`);
             } else {
-                techList.push(\`<div class="tech-item">Fib 100% (Resistance 1): \${formatPrice(fib.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 0% (Resistance 1): \${formatPrice(fib.level1)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib 38.2% (Resistance 2): \${formatPrice(fib.level2)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib 61.8% (Resistance 3): \${formatPrice(fib.level3)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib Position: Near Resistance</div>\`);
