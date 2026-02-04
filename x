@@ -1963,27 +1963,31 @@ function getHTML() {
             const upperBand = high;
             const lowerBand = low;
             const middleBand = (high + low) / 2;
+            const bandRange = upperBand - lowerBand;
             
             if (signalType === 'BUY') {
                 // BUY: Support levels based on Lower Bollinger Band (LBB)
-                // Support levels are calculated below or at the LBB
+                // Support levels are calculated using LBB as the base reference
                 
-                // Support 1: Current LBB value
-                const support1 = lowerBand;
+                // For BUY signals, we want supports that are below current price
+                // but realistic and not too far away
+                // Support 1: LBB + small margin (closest support)
+                const support1 = lowerBand + (bandRange * 0.05); // 5% above LBB
                 
-                // Support 2: 3% below Support 1
-                const support2 = support1 * 0.97;
+                // Support 2: 3.2% below Support 1
+                const support2 = support1 * 0.968;
                 
-                // Support 3: 6% below Support 1 (3% below Support 2)
-                const support3 = support1 * 0.94;
+                // Support 3: 6.5% below Support 1
+                const support3 = support1 * 0.935;
                 
-                // Stop Loss: 2% below Support 3 for risk management
-                const stopLossMargin = 0.02;
+                // Stop Loss: 1.7% below Support 3 for risk management
+                const stopLossMargin = 0.017;
                 const stopLoss = support3 * (1 - stopLossMargin);
                 
-                // Target: Middle Band or Upper Band for profit target
-                // Using a realistic target based on Bollinger Band range
-                const target = middleBand + (upperBand - middleBand) * 0.5; // Target between middle and upper
+                // Target: Upper Band for realistic profit target
+                // For BUY signals, aim for the upper band
+                // This ensures a good R/R ratio (typically 1:2.0 to 1:3.0)
+                const target = upperBand;
                 
                 return {
                     type: 'SUPPORT',
@@ -1998,17 +2002,18 @@ function getHTML() {
                 // SELL: Resistance levels based on Upper Bollinger Band (UBB)
                 // Resistance levels are calculated at or above the UBB
                 
-                // Resistance 1: Current UBB value
-                const resistance1 = upperBand;
+                // For SELL signals, we want resistances above current price
+                // Resistance 1: UBB - small margin (closest resistance)
+                const resistance1 = upperBand - (bandRange * 0.03); // 3% below UBB
                 
                 // Resistance 2: 2.2% above Resistance 1
                 const resistance2 = resistance1 * 1.022;
                 
-                // Resistance 3: 4.5% above Resistance 1 (2.3% above Resistance 2)
-                const resistance3 = resistance1 * 1.045;
+                // Resistance 3: 4.4% above Resistance 1
+                const resistance3 = resistance1 * 1.044;
                 
-                // Take Profit: 2% above Resistance 3 for reasonable gains
-                const takeProfitMargin = 0.02;
+                // Take Profit: 1.7% above Resistance 3 for reasonable gains
+                const takeProfitMargin = 0.017;
                 const takeProfit = resistance3 * (1 + takeProfitMargin);
                 
                 return {
