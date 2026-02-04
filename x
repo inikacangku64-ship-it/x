@@ -424,32 +424,85 @@ function detectTrendFromCandles(candles) {
 // Calculate Bollinger Bands (BB 20, 2)
 // BB Settings: Period 20, Standard Deviation 2
 // Used for support/resistance calculation following Indodax price movements
-function calculateBollingerBands(candles, period = 20, stdDev = 2) {
+// Standard Bollinger Bands Calculation
+// Period: 20 (SMA), Standard Deviation Multiplier: 2
+function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
     if (!candles || candles.length < period) {
-        return { upper: 0, middle: 0, lower: 0, position: 'MID', posPercent: 50 };
+        // Fallback for insufficient data
+        if (candles && candles.length > 0) {
+            const closes = candles.map(c => c.close);
+            const high = Math.max(...closes);
+            const low = Math.min(...closes);
+            const mid = (high + low) / 2;
+            const range = high - low;
+            
+            return {
+                upper: mid + (range / 2),
+                middle: mid,
+                lower: mid - (range / 2),
+                stdDev: range / 4,
+                posPercent: 50,
+                position: 'MID'
+            };
+        }
+        
+        // Emergency fallback
+        return {
+            upper: 0,
+            middle: 0,
+            lower: 0,
+            stdDev: 0,
+            posPercent: 50,
+            position: 'MID'
+        };
     }
     
-    const closes = candles.slice(-period).map(c => c.close);
-    const sma = closes.reduce((a, b) => a + b, 0) / period;
+    // Take last 'period' candles for calculation
+    const recentCandles = candles.slice(-period);
+    const closes = recentCandles.map(c => c.close);
     
-    const squaredDiffs = closes.map(c => Math.pow(c - sma, 2));
-    const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
-    const std = Math.sqrt(variance);
+    // Step 1: Calculate SMA (Simple Moving Average) = Middle Band
+    const sum = closes.reduce((acc, close) => acc + close, 0);
+    const sma = sum / period;
     
-    const upper = sma + (stdDev * std);
-    const lower = sma - (stdDev * std);
-    const current = candles[candles.length - 1].close;
+    // Step 2: Calculate Standard Deviation
+    const squaredDifferences = closes.map(close => {
+        const diff = close - sma;
+        return diff * diff;
+    });
     
+    const variance = squaredDifferences.reduce((acc, val) => acc + val, 0) / period;
+    const stdDev = Math.sqrt(variance);
+    
+    // Step 3: Calculate Upper and Lower Bands
+    const upperBand = sma + (stdDevMultiplier * stdDev);
+    const lowerBand = sma - (stdDevMultiplier * stdDev);
+    
+    // Step 4: Calculate current price position in bands (0-100%)
+    const currentClose = candles[candles.length - 1].close;
+    let posPercent = 50;
+    
+    if (upperBand !== lowerBand) {
+        posPercent = ((currentClose - lowerBand) / (upperBand - lowerBand)) * 100;
+        // Clamp between 0 and 100
+        posPercent = Math.max(0, Math.min(100, posPercent));
+    }
+    
+    // Determine position
     let position = 'MID';
-    const range = upper - lower;
-    const posPercent = range > 0 ? ((current - lower) / range) * 100 : 50;
-    
     if (posPercent >= 80) position = 'OVERBOUGHT';
     else if (posPercent <= 20) position = 'OVERSOLD';
     else if (posPercent >= 60) position = 'ABOVE_MID';
     else if (posPercent <= 40) position = 'BELOW_MID';
     
-    return { upper, middle: sma, lower, position, posPercent };
+    return {
+        upper: upperBand,
+        middle: sma,
+        lower: lowerBand,
+        stdDev: stdDev,
+        posPercent: posPercent,
+        position: position
+    };
 }
 
 /*
@@ -763,6 +816,7 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = nu
       rsi: rsiProxy.toFixed(1),
       stochRSI: stochRSI.toFixed(1),
       bbPosition: bbSignal,
+      bbData: bbData,  // Store BB data for calculateTargetsAndStops
       macd: macd.toFixed(1),
       momentum: momentum.toFixed(2),
       volumeRatio: volumeRatio.toFixed(2),
@@ -2189,32 +2243,85 @@ function getHTML() {
         }
 
         // Calculate Bollinger Bands from real data (20 period, 2 std dev)
-        function calculateBollingerBands(candles, period = 20, stdDev = 2) {
+        // Standard Bollinger Bands Calculation
+        // Period: 20 (SMA), Standard Deviation Multiplier: 2
+        function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
             if (!candles || candles.length < period) {
-                return { upper: 0, middle: 0, lower: 0, position: 'MID', posPercent: 50 };
+                // Fallback for insufficient data
+                if (candles && candles.length > 0) {
+                    const closes = candles.map(c => c.close);
+                    const high = Math.max(...closes);
+                    const low = Math.min(...closes);
+                    const mid = (high + low) / 2;
+                    const range = high - low;
+                    
+                    return {
+                        upper: mid + (range / 2),
+                        middle: mid,
+                        lower: mid - (range / 2),
+                        stdDev: range / 4,
+                        posPercent: 50,
+                        position: 'MID'
+                    };
+                }
+                
+                // Emergency fallback
+                return {
+                    upper: 0,
+                    middle: 0,
+                    lower: 0,
+                    stdDev: 0,
+                    posPercent: 50,
+                    position: 'MID'
+                };
             }
             
-            const closes = candles.slice(-period).map(c => c.close);
-            const sma = closes.reduce((a, b) => a + b, 0) / period;
+            // Take last 'period' candles for calculation
+            const recentCandles = candles.slice(-period);
+            const closes = recentCandles.map(c => c.close);
             
-            const squaredDiffs = closes.map(c => Math.pow(c - sma, 2));
-            const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
-            const std = Math.sqrt(variance);
+            // Step 1: Calculate SMA (Simple Moving Average) = Middle Band
+            const sum = closes.reduce((acc, close) => acc + close, 0);
+            const sma = sum / period;
             
-            const upper = sma + (stdDev * std);
-            const lower = sma - (stdDev * std);
-            const current = candles[candles.length - 1].close;
+            // Step 2: Calculate Standard Deviation
+            const squaredDifferences = closes.map(close => {
+                const diff = close - sma;
+                return diff * diff;
+            });
             
+            const variance = squaredDifferences.reduce((acc, val) => acc + val, 0) / period;
+            const stdDev = Math.sqrt(variance);
+            
+            // Step 3: Calculate Upper and Lower Bands
+            const upperBand = sma + (stdDevMultiplier * stdDev);
+            const lowerBand = sma - (stdDevMultiplier * stdDev);
+            
+            // Step 4: Calculate current price position in bands (0-100%)
+            const currentClose = candles[candles.length - 1].close;
+            let posPercent = 50;
+            
+            if (upperBand !== lowerBand) {
+                posPercent = ((currentClose - lowerBand) / (upperBand - lowerBand)) * 100;
+                // Clamp between 0 and 100
+                posPercent = Math.max(0, Math.min(100, posPercent));
+            }
+            
+            // Determine position
             let position = 'MID';
-            const range = upper - lower;
-            const posPercent = range > 0 ? ((current - lower) / range) * 100 : 50;
-            
             if (posPercent >= 80) position = 'OVERBOUGHT';
             else if (posPercent <= 20) position = 'OVERSOLD';
-            else if (posPercent >= 60) position = 'UPPER';
-            else if (posPercent <= 40) position = 'LOWER';
+            else if (posPercent >= 60) position = 'ABOVE_MID';
+            else if (posPercent <= 40) position = 'BELOW_MID';
             
-            return { upper, middle: sma, lower, position, posPercent };
+            return {
+                upper: upperBand,
+                middle: sma,
+                lower: lowerBand,
+                stdDev: stdDev,
+                posPercent: posPercent,
+                position: position
+            };
         }
 
         // Calculate EMA helper function
@@ -2356,6 +2463,284 @@ function getHTML() {
             return { level: 'LOW', color: '#22c55e', icon: '🟢', class: 'risk-low' };
         }
         
+        // Calculate Targets and Stops using Original BB(20,2) Calculation
+        // Uses priority system: signal.indicators.bbData → fresh BB → fallback
+        function calculateTargetsAndStops(ticker, signal, candles) {
+            const last = ticker.last;
+            
+            // ========================================
+            // STEP 1: Get BB(20,2) from ORIGINAL calculation
+            // ========================================
+            
+            let bbData = null;
+            
+            // Priority 1: Use BB from signal.indicators (already calculated with original function)
+            if (signal.indicators && signal.indicators.bbData && 
+                signal.indicators.bbData.upper && 
+                signal.indicators.bbData.middle && 
+                signal.indicators.bbData.lower) {
+                bbData = signal.indicators.bbData;
+                console.log('✅ Using BB from signal.indicators for', ticker.pair);
+            }
+            // Priority 2: Calculate fresh using ORIGINAL BB(20,2) function
+            else if (candles && candles.length >= 20) {
+                bbData = calculateBollingerBands(candles, 20, 2);
+                console.log('✅ Fresh BB(20,2) calculation for', ticker.pair, '- Candles:', candles.length);
+            }
+            // Priority 3: Emergency fallback (should rarely happen)
+            else {
+                console.warn('⚠️ Insufficient data for BB(20,2), using price-based estimate for:', ticker.pair);
+                const range = ticker.high - ticker.low;
+                const middle = (ticker.high + ticker.low) / 2;
+                const stdEstimate = range / 4;
+                bbData = {
+                    upper: middle + (2 * stdEstimate),
+                    middle: middle,
+                    lower: middle - (2 * stdEstimate),
+                    stdDev: stdEstimate,
+                    posPercent: 50
+                };
+            }
+            
+            let upperBand = bbData.upper;
+            let middleBand = bbData.middle;
+            let lowerBand = bbData.lower;
+            const stdDev = bbData.stdDev || (upperBand - middleBand) / 2;
+            
+            // ========================================
+            // STEP 2: VALIDATE BB levels
+            // ========================================
+            
+            // Check 1: Upper > Middle > Lower
+            if (upperBand <= middleBand || middleBand <= lowerBand || upperBand <= lowerBand) {
+                console.error('❌ Invalid BB structure:', { 
+                    pair: ticker.pair,
+                    upper: upperBand, 
+                    middle: middleBand, 
+                    lower: lowerBand,
+                    price: last
+                });
+                
+                // Force rebuild with safe structure
+                const range = Math.max(ticker.high - ticker.low, last * 0.15);
+                middleBand = last;
+                upperBand = last + (range * 0.5);
+                lowerBand = last - (range * 0.5);
+            }
+            
+            // Check 2: Price should be within reasonable range of BB
+            // (BB can be outside price in extreme cases, but warn if unusual)
+            if (last > upperBand * 1.5 || last < lowerBand * 0.5) {
+                console.warn('⚠️ Price far outside BB range:', {
+                    pair: ticker.pair,
+                    price: last,
+                    upper: upperBand,
+                    lower: lowerBand
+                });
+            }
+            
+            // ========================================
+            // STEP 3: Determine ZONE by price position
+            // ========================================
+            
+            const pricePosition = ((last - lowerBand) / (upperBand - lowerBand)) * 100;
+            
+            console.log('📊 BB Analysis:', {
+                pair: ticker.pair,
+                price: last,
+                bbUpper: upperBand.toFixed(2),
+                bbMiddle: middleBand.toFixed(2),
+                bbLower: lowerBand.toFixed(2),
+                position: pricePosition.toFixed(1) + '%',
+                zone: last >= middleBand ? 'BULLISH' : 'BEARISH'
+            });
+            
+            // ========================================
+            // BULLISH ZONE: Price >= Middle BB
+            // Display: SUPPORT levels (below price)
+            // ========================================
+            
+            if (last >= middleBand || pricePosition >= 50) {
+                // Calculate support levels BELOW current price
+                let support1 = middleBand;
+                let support2 = lowerBand;
+                let support3 = lowerBand - stdDev;
+                let stopLoss = lowerBand - (stdDev * 1.2);
+                
+                // CRITICAL VALIDATION: Force ALL levels BELOW price
+                // This prevents the bug where supports show above price
+                
+                if (support1 >= last) {
+                    support1 = last * 0.98; // Force 2% below
+                    console.warn('⚠️ Support1 adjusted below price for', ticker.pair);
+                }
+                
+                if (support2 >= last || support2 >= support1) {
+                    support2 = Math.min(support1 * 0.97, last * 0.95); // Force below S1 and price
+                    console.warn('⚠️ Support2 adjusted below S1 for', ticker.pair);
+                }
+                
+                if (support3 >= last || support3 >= support2) {
+                    support3 = Math.min(support2 * 0.95, last * 0.92); // Force below S2
+                    console.warn('⚠️ Support3 adjusted below S2 for', ticker.pair);
+                }
+                
+                if (stopLoss >= last || stopLoss >= support3) {
+                    stopLoss = Math.min(support3 * 0.97, last * 0.90); // Force below S3
+                    console.warn('⚠️ StopLoss adjusted below S3 for', ticker.pair);
+                }
+                
+                // Double-check: Absolutely ensure descending order below price
+                support1 = Math.min(support1, last * 0.99);
+                support2 = Math.min(support2, support1 * 0.98, last * 0.96);
+                support3 = Math.min(support3, support2 * 0.97, last * 0.93);
+                stopLoss = Math.min(stopLoss, support3 * 0.96, last * 0.90);
+                
+                // Calculate Risk/Reward (if buying from current level)
+                const potentialGain = upperBand - last;
+                const potentialLoss = last - stopLoss;
+                const riskRewardRatio = potentialLoss > 0 ? potentialGain / potentialLoss : 0;
+                
+                return {
+                    type: 'SUPPORT_ZONE',
+                    entry: last,
+                    levels: {
+                        S1: { 
+                            price: support1, 
+                            percent: ((support1 - last) / last * 100).toFixed(2), 
+                            label: 'BB Middle (Support)',
+                            icon: '🟢'
+                        },
+                        S2: { 
+                            price: support2, 
+                            percent: ((support2 - last) / last * 100).toFixed(2), 
+                            label: 'BB Lower (Support)',
+                            icon: '🟢'
+                        },
+                        S3: { 
+                            price: support3, 
+                            percent: ((support3 - last) / last * 100).toFixed(2), 
+                            label: 'Extended Support',
+                            icon: '🟢'
+                        },
+                        SL: { 
+                            price: stopLoss, 
+                            percent: ((stopLoss - last) / last * 100).toFixed(2), 
+                            label: 'Stop Loss',
+                            icon: '🛑'
+                        }
+                    },
+                    riskReward: riskRewardRatio.toFixed(1),
+                    bbLevels: {
+                        upper: upperBand,
+                        middle: middleBand,
+                        lower: lowerBand,
+                        stdDev: stdDev,
+                        position: pricePosition.toFixed(1)
+                    },
+                    zone: 'BULLISH',
+                    validation: {
+                        allBelowPrice: support1 < last && support2 < last && support3 < last && stopLoss < last,
+                        message: (support1 < last && support2 < last && support3 < last && stopLoss < last) 
+                            ? '✅ All supports correctly below price' 
+                            : '❌ VALIDATION FAILED - Some levels above price!'
+                    }
+                };
+            }
+            
+            // ========================================
+            // BEARISH ZONE: Price < Middle BB
+            // Display: RESISTANCE levels (above price)
+            // ========================================
+            
+            else {
+                // Calculate resistance levels ABOVE current price
+                let resistance1 = middleBand;
+                let resistance2 = upperBand;
+                let resistance3 = upperBand + stdDev;
+                let stopLoss = upperBand + (stdDev * 1.2);
+                
+                // CRITICAL VALIDATION: Force ALL levels ABOVE price
+                
+                if (resistance1 <= last) {
+                    resistance1 = last * 1.02; // Force 2% above
+                    console.warn('⚠️ Resistance1 adjusted above price for', ticker.pair);
+                }
+                
+                if (resistance2 <= last || resistance2 <= resistance1) {
+                    resistance2 = Math.max(resistance1 * 1.03, last * 1.05); // Force above R1 and price
+                    console.warn('⚠️ Resistance2 adjusted above R1 for', ticker.pair);
+                }
+                
+                if (resistance3 <= last || resistance3 <= resistance2) {
+                    resistance3 = Math.max(resistance2 * 1.05, last * 1.08); // Force above R2
+                    console.warn('⚠️ Resistance3 adjusted above R2 for', ticker.pair);
+                }
+                
+                if (stopLoss <= last || stopLoss <= resistance3) {
+                    stopLoss = Math.max(resistance3 * 1.03, last * 1.10); // Force above R3
+                    console.warn('⚠️ StopLoss adjusted above R3 for', ticker.pair);
+                }
+                
+                // Double-check: Absolutely ensure ascending order above price
+                resistance1 = Math.max(resistance1, last * 1.01);
+                resistance2 = Math.max(resistance2, resistance1 * 1.02, last * 1.04);
+                resistance3 = Math.max(resistance3, resistance2 * 1.03, last * 1.07);
+                stopLoss = Math.max(stopLoss, resistance3 * 1.04, last * 1.10);
+                
+                // Calculate Risk/Reward (if selling from current level)
+                const potentialGain = last - lowerBand;
+                const potentialLoss = stopLoss - last;
+                const riskRewardRatio = potentialLoss > 0 ? potentialGain / potentialLoss : 0;
+                
+                return {
+                    type: 'RESISTANCE_ZONE',
+                    entry: last,
+                    levels: {
+                        R1: { 
+                            price: resistance1, 
+                            percent: ((resistance1 - last) / last * 100).toFixed(2), 
+                            label: 'BB Middle (Resistance)',
+                            icon: '🔴'
+                        },
+                        R2: { 
+                            price: resistance2, 
+                            percent: ((resistance2 - last) / last * 100).toFixed(2), 
+                            label: 'BB Upper (Resistance)',
+                            icon: '🔴'
+                        },
+                        R3: { 
+                            price: resistance3, 
+                            percent: ((resistance3 - last) / last * 100).toFixed(2), 
+                            label: 'Extended Resistance',
+                            icon: '🔴'
+                        },
+                        SL: { 
+                            price: stopLoss, 
+                            percent: ((stopLoss - last) / last * 100).toFixed(2), 
+                            label: 'Stop Loss',
+                            icon: '🛑'
+                        }
+                    },
+                    riskReward: riskRewardRatio.toFixed(1),
+                    bbLevels: {
+                        upper: upperBand,
+                        middle: middleBand,
+                        lower: lowerBand,
+                        stdDev: stdDev,
+                        position: pricePosition.toFixed(1)
+                    },
+                    zone: 'BEARISH',
+                    validation: {
+                        allAbovePrice: resistance1 > last && resistance2 > last && resistance3 > last && stopLoss > last,
+                        message: (resistance1 > last && resistance2 > last && resistance3 > last && stopLoss > last) 
+                            ? '✅ All resistances correctly above price' 
+                            : '❌ VALIDATION FAILED - Some levels below price!'
+                    }
+                };
+            }
+        }
+        
         // Calculate Support/Resistance using Bollinger Bands (20, 2)
         // BB Settings: Period 20, Standard Deviation 2
         // CRITICAL: Based on PRICE POSITION in BB, NOT signal type
@@ -2465,82 +2850,66 @@ function getHTML() {
         // Target/SL/Risk now based on PRICE POSITION in BB, not signal type
         // Based on Indodax price movements for accurate support and resistance levels
         function calculateTargetSLRisk(ticker, signal, timeframe = '1h') {
-            const last = ticker.last;
-            const high = ticker.high;
-            const low = ticker.low;
+            // Try to use the new calculateTargetsAndStops function with candles if available
+            // Note: In the HTML context, we don't have access to candles directly,
+            // so we rely on signal.indicators.bbData being populated from the backend
             
-            // Use the Bollinger Band Levels function (BB 20,2) for support/resistance
-            // Now determines zone based on price position in BB
-            const bb = calculateBollingerBandLevels(high, low, last, signal.type, timeframe);
+            // Use new function which has better BB handling and validation
+            const newData = calculateTargetsAndStops(ticker, signal, null);
             
-            let result = {
-                targets: [],
-                stopLoss: bb.stopLoss,
-                riskReward: 0,
-                entry: last,
-                zone: bb.zone,
-                pricePosition: bb.pricePosition
-            };
-            
-            // Display based on BB zone (price position), not signal type
-            if (bb.type === 'RESISTANCE') {
-                // Price in bearish zone - show resistances
-                result.targets = [
-                    { 
-                        label: 'Resistance 1', 
-                        value: bb.level1,
-                        percent: ((bb.level1 - last) / last * 100).toFixed(2)
-                    },
-                    { 
-                        label: 'Resistance 2', 
-                        value: bb.level2,
-                        percent: ((bb.level2 - last) / last * 100).toFixed(2)
-                    },
-                    { 
-                        label: 'Resistance 3', 
-                        value: bb.level3,
-                        percent: ((bb.level3 - last) / last * 100).toFixed(2)
-                    }
-                ];
-                
-                // For bearish zone:
-                // Stop Loss: Above resistances (for short positions)
-                // Risk: Distance from entry to stop loss
-                // Reward: Distance from entry to lower BB
-                const risk = Math.abs(bb.stopLoss - last);
-                const reward = Math.abs(last - bb.bbLevels.lower);
-                result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
-                
+            // Convert the new format to the old format for compatibility
+            if (newData.type === 'RESISTANCE_ZONE') {
+                return {
+                    targets: [
+                        { 
+                            label: 'Resistance 1', 
+                            value: newData.levels.R1.price,
+                            percent: newData.levels.R1.percent
+                        },
+                        { 
+                            label: 'Resistance 2', 
+                            value: newData.levels.R2.price,
+                            percent: newData.levels.R2.percent
+                        },
+                        { 
+                            label: 'Resistance 3', 
+                            value: newData.levels.R3.price,
+                            percent: newData.levels.R3.percent
+                        }
+                    ],
+                    stopLoss: newData.levels.SL.price,
+                    riskReward: newData.riskReward,
+                    entry: newData.entry,
+                    zone: newData.zone,
+                    pricePosition: newData.bbLevels.position
+                };
             } else {
-                // Price in bullish zone - show supports
-                result.targets = [
-                    { 
-                        label: 'Support 1', 
-                        value: bb.level1,
-                        percent: ((bb.level1 - last) / last * 100).toFixed(2)
-                    },
-                    { 
-                        label: 'Support 2', 
-                        value: bb.level2,
-                        percent: ((bb.level2 - last) / last * 100).toFixed(2)
-                    },
-                    { 
-                        label: 'Support 3', 
-                        value: bb.level3,
-                        percent: ((bb.level3 - last) / last * 100).toFixed(2)
-                    }
-                ];
-                
-                // For bullish zone:
-                // Stop Loss: Below supports
-                // Risk: Distance from entry to stop loss
-                // Reward: Distance from entry to upper BB
-                const risk = Math.abs(last - bb.stopLoss);
-                const reward = Math.abs(bb.bbLevels.upper - last);
-                result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
+                // SUPPORT_ZONE
+                return {
+                    targets: [
+                        { 
+                            label: 'Support 1', 
+                            value: newData.levels.S1.price,
+                            percent: newData.levels.S1.percent
+                        },
+                        { 
+                            label: 'Support 2', 
+                            value: newData.levels.S2.price,
+                            percent: newData.levels.S2.percent
+                        },
+                        { 
+                            label: 'Support 3', 
+                            value: newData.levels.S3.price,
+                            percent: newData.levels.S3.percent
+                        }
+                    ],
+                    stopLoss: newData.levels.SL.price,
+                    riskReward: newData.riskReward,
+                    entry: newData.entry,
+                    zone: newData.zone,
+                    pricePosition: newData.bbLevels.position
+                };
             }
-            
-            return result;
         }
         
         // Helper function: Calculate BB Position based on signal type
