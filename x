@@ -440,7 +440,7 @@ function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
                 upper: mid + (range / 2),
                 middle: mid,
                 lower: mid - (range / 2),
-                stdDev: range / 4,
+                stdDev: range / 4,  // Estimate: range typically spans ~4 std deviations in normal distribution
                 posPercent: 50,
                 position: 'MID'
             };
@@ -2259,7 +2259,7 @@ function getHTML() {
                         upper: mid + (range / 2),
                         middle: mid,
                         lower: mid - (range / 2),
-                        stdDev: range / 4,
+                        stdDev: range / 4,  // Estimate: range typically spans ~4 std deviations in normal distribution
                         posPercent: 50,
                         position: 'MID'
                     };
@@ -2492,7 +2492,7 @@ function getHTML() {
                 console.warn('⚠️ Insufficient data for BB(20,2), using price-based estimate for:', ticker.pair);
                 const range = ticker.high - ticker.low;
                 const middle = (ticker.high + ticker.low) / 2;
-                const stdEstimate = range / 4;
+                const stdEstimate = range / 4;  // Estimate: range typically spans ~4 std deviations
                 bbData = {
                     upper: middle + (2 * stdEstimate),
                     middle: middle,
@@ -2530,6 +2530,7 @@ function getHTML() {
             
             // Check 2: Price should be within reasonable range of BB
             // (BB can be outside price in extreme cases, but warn if unusual)
+            // Thresholds: 1.5x upper or 0.5x lower indicate potential data quality issues
             if (last > upperBand * 1.5 || last < lowerBand * 0.5) {
                 console.warn('⚠️ Price far outside BB range:', {
                     pair: ticker.pair,
@@ -2569,6 +2570,7 @@ function getHTML() {
                 
                 // CRITICAL VALIDATION: Force ALL levels BELOW price
                 // This prevents the bug where supports show above price
+                // Percentages ensure progressive levels: 98% (S1), 95% (S2), 92% (S3), 90% (SL)
                 
                 if (support1 >= last) {
                     support1 = last * 0.98; // Force 2% below
@@ -2591,6 +2593,7 @@ function getHTML() {
                 }
                 
                 // Double-check: Absolutely ensure descending order below price
+                // Final safety net with guaranteed spacing: 99%, 96%, 93%, 90%
                 support1 = Math.min(support1, last * 0.99);
                 support2 = Math.min(support2, support1 * 0.98, last * 0.96);
                 support3 = Math.min(support3, support2 * 0.97, last * 0.93);
@@ -2661,6 +2664,7 @@ function getHTML() {
                 let stopLoss = upperBand + (stdDev * 1.2);
                 
                 // CRITICAL VALIDATION: Force ALL levels ABOVE price
+                // Percentages ensure progressive levels: 102% (R1), 105% (R2), 108% (R3), 110% (SL)
                 
                 if (resistance1 <= last) {
                     resistance1 = last * 1.02; // Force 2% above
@@ -2683,6 +2687,7 @@ function getHTML() {
                 }
                 
                 // Double-check: Absolutely ensure ascending order above price
+                // Final safety net with guaranteed spacing: 101%, 104%, 107%, 110%
                 resistance1 = Math.max(resistance1, last * 1.01);
                 resistance2 = Math.max(resistance2, resistance1 * 1.02, last * 1.04);
                 resistance3 = Math.max(resistance3, resistance2 * 1.03, last * 1.07);
