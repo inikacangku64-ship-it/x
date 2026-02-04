@@ -87,16 +87,6 @@ async function getMarketData() {
       return { ...ticker, signals };
     });
     
-    // Top Gainers: Only include tokens with high volume, sorted by volume descending
-    const topGainers = [...tickersWithSignals]
-      .filter(t => t.priceChangePercent > 0 && t.volume > avgVolume)
-      .sort((a, b) => b.volume - a.volume);
-    
-    // Top Losers: Only include tokens with low volume, sorted by volume ascending
-    const topLosers = [...tickersWithSignals]
-      .filter(t => t.priceChangePercent < 0 && t.volume < avgVolume)
-      .sort((a, b) => a.volume - b.volume);
-    
     const topVolume = [...tickersWithSignals]
       .filter(t => t.volume > 0)
       .sort((a, b) => b.volume - a.volume);
@@ -109,13 +99,9 @@ async function getMarketData() {
         totalPairs: validTickers.length,
         totalVolume: totalVolume,
         activeMarkets: validTickers.filter(t => t.volume > 0).length,
-        totalGainers: topGainers.length,
-        totalLosers: topLosers.length,
         totalVolumeAssets: topVolume.length
       },
       tickers: tickersWithSignals,
-      topGainers: topGainers,
-      topLosers: topLosers,
       topVolume: topVolume
     }), {
       headers: { 
@@ -143,23 +129,16 @@ async function getMarketData() {
 // This version calculates both support and resistance regardless of signal type
 // Used early in signal analysis before type is fully determined
 function calculateFibPositionForRecommendation(ticker, high, low, timeframe) {
-  const tfMultiplier = {
-    '15m': 0.5, '30m': 0.7, '1h': 1.0, '2h': 1.3,
-    '4h': 1.8, '1d': 2.5, '3d': 3.5, '1w': 5.0,
-    '2w': 6.5, '1m': 8.0
-  };
-  
-  const multiplier = tfMultiplier[timeframe] || 1.0;
-  const range = (high - low) * multiplier;
+  const range = high - low;
   const last = ticker.last;
   const tolerance = 0.02; // 2%
   
-  // Calculate support levels (from high)
+  // Calculate support levels (from high) - for spot trading
   const support1 = high - (range * 0.236);
   const support2 = high - (range * 0.382);
   const support3 = high - (range * 0.618);
   
-  // Calculate resistance levels (from low)
+  // Calculate resistance levels (from low) - for spot trading
   const resistance1 = low + (range * 0.236);
   const resistance2 = low + (range * 0.382);
   const resistance3 = low + (range * 0.618);
@@ -1653,14 +1632,6 @@ function getHTML() {
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('signals', event)">🎯 Signal Analysis</div>
                 <div class="tab" onclick="switchTab('overview', event)">📈 Market Overview</div>
-                <div class="tab" onclick="switchTab('gainers', event)">
-                    🚀 Top Gainers
-                    <span class="count-badge" id="gainersCount">0</span>
-                </div>
-                <div class="tab" onclick="switchTab('losers', event)">
-                    📉 Top Losers
-                    <span class="count-badge" id="losersCount">0</span>
-                </div>
                 <div class="tab" onclick="switchTab('volume', event)">
                     💰 Top Volume
                     <span class="count-badge" id="volumeCount">0</span>
@@ -1767,52 +1738,6 @@ function getHTML() {
                                 </tr>
                             </thead>
                             <tbody id="allMarketsBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="gainers" class="content-section">
-                <div class="table-card">
-                    <div class="table-title">🚀 All Top Gainers (24h) - <span id="gainersChartCount">0</span> Assets</div>
-                    <input type="text" id="searchGainers" class="search-box" placeholder="🔍 Search gainers..." onkeyup="filterGainersTable()">
-                    <div class="table-wrapper" onscroll="handleScroll()" onmouseenter="pauseAutoRefresh()" onmouseleave="resumeAutoRefresh()">
-                        <table id="gainersTable">
-                            <thead>
-                                <tr>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 0, 'number')">Rank</th>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 1, 'string')">Pair</th>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 2, 'number')">Last Price</th>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 3, 'number')">24h Change</th>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 4, 'number')">24h High</th>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 5, 'number')">24h Low</th>
-                                    <th class="sortable" onclick="sortTable('gainersTable', 6, 'number')">Volume</th>
-                                </tr>
-                            </thead>
-                            <tbody id="gainersBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="losers" class="content-section">
-                <div class="table-card">
-                    <div class="table-title">📉 All Top Losers (24h) - <span id="losersChartCount">0</span> Assets</div>
-                    <input type="text" id="searchLosers" class="search-box" placeholder="🔍 Search losers..." onkeyup="filterLosersTable()">
-                    <div class="table-wrapper" onscroll="handleScroll()" onmouseenter="pauseAutoRefresh()" onmouseleave="resumeAutoRefresh()">
-                        <table id="losersTable">
-                            <thead>
-                                <tr>
-                                    <th class="sortable" onclick="sortTable('losersTable', 0, 'number')">Rank</th>
-                                    <th class="sortable" onclick="sortTable('losersTable', 1, 'string')">Pair</th>
-                                    <th class="sortable" onclick="sortTable('losersTable', 2, 'number')">Last Price</th>
-                                    <th class="sortable" onclick="sortTable('losersTable', 3, 'number')">24h Change</th>
-                                    <th class="sortable" onclick="sortTable('losersTable', 4, 'number')">24h High</th>
-                                    <th class="sortable" onclick="sortTable('losersTable', 5, 'number')">24h Low</th>
-                                    <th class="sortable" onclick="sortTable('losersTable', 6, 'number')">Volume</th>
-                                </tr>
-                            </thead>
-                            <tbody id="losersBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -2023,63 +1948,65 @@ function getHTML() {
         
         // Calculate Fibonacci Retracement with proper timeframe multipliers
         function calculateFibonacciRetracement(high, low, last, signalType, timeframe) {
-            // Fibonacci Levels
-            const FIB_0 = 0.0;
+            // Fibonacci Levels - Standard Fibonacci retracement levels
+            const FIB_236 = 0.236;
             const FIB_382 = 0.382;
+            const FIB_500 = 0.500;
             const FIB_618 = 0.618;
-            const FIB_1000 = 1.0;
+            const FIB_786 = 0.786;
             
-            // Timeframe multiplier untuk range
-            const tfMultiplier = {
-                '15m': 0.5, '30m': 0.7, '1h': 1.0, '2h': 1.3,
-                '4h': 1.8, '1d': 2.5, '3d': 3.5, '1w': 5.0,
-                '2w': 6.5, '1m': 8.0
-            };
-            
-            const multiplier = tfMultiplier[timeframe] || 1.0;
-            const range = (high - low) * multiplier;
+            const range = high - low;
             
             if (signalType === 'BUY') {
-                // BUY: Support levels from high retracing down
-                // Support 1: Based on Fibonacci Level 0% (at high, minimal retracement)
-                // Support 2: Based on Fibonacci Level 38.2% (38.2% retracement from high)
-                // Support 3: Based on Fibonacci Level 61.8% (61.8% retracement from high)
-                const support1 = high - (range * FIB_0);     // 0% retracement = high
-                const support2 = high - (range * FIB_382);   // 38.2% retracement
-                const support3 = high - (range * FIB_618);   // 61.8% retracement
+                // BUY: Support levels below current price
+                // For spot trading, support levels should be below current price for buying opportunities
+                // Support 1 is closest to current price (highest support)
+                // Support 2 is middle level
+                // Support 3 is deepest level (lowest support)
+                // Using reversed Fibonacci levels for proper spot trading logic
                 
-                // Stop Loss: Below Support 3 (deepest support level)
-                const stopLoss = support3 - (range * 0.05);
+                // Calculate supports below current price using Fibonacci retracement from high to low
+                const support1 = high - (range * FIB_236);  // Closest to current (23.6% retracement)
+                const support2 = high - (range * FIB_382);  // Middle level (38.2% retracement)
+                const support3 = high - (range * FIB_618);  // Deepest level (61.8% retracement)
+                
+                // Stop Loss: Below Support 3
+                const stopLoss = high - (range * FIB_786);  // 78.6% retracement (below deepest support)
+                
+                // Target for R/R calculation: Above current price
+                const target = high + (range * 0.5);  // Target above high
                 
                 return {
                     type: 'SUPPORT',
                     level1: support1,
                     level2: support2,
                     level3: support3,
-                    stopLoss: stopLoss
+                    stopLoss: stopLoss,
+                    target: target
                 };
                 
             } else { // SELL
-                // SELL: Resistance levels from low extending up
-                // For SELL signals, we look for resistance on the way down
-                // The requirements show R1 < R2 < R3, meaning ascending order
-                // Resistance 1: Lowest resistance (closer to current price)
-                // Resistance 2: 38.2% level
-                // Resistance 3: 61.8% level
-                // Take Profit is above R3
-                const resistance1 = low + (range * FIB_0);    // Starting from low (0% = low)
-                const resistance2 = low + (range * FIB_382);  // 38.2% from low
-                const resistance3 = low + (range * FIB_618);  // 61.8% from low
+                // SELL: Resistance levels above current price
+                // For spot trading, resistance levels should be above current price for selling opportunities
+                // Resistance 1 is closest to current price (lowest resistance)
+                // Resistance 2 is middle level
+                // Resistance 3 is highest level
                 
-                // Take Profit: Above Resistance 3 (extends beyond highest resistance)
-                const takeProfit = resistance3 + (range * 0.05);
+                // Calculate resistances above current price using Fibonacci extension from low
+                const resistance1 = low + (range * FIB_236);  // Closest to current (23.6% from low)
+                const resistance2 = low + (range * FIB_382);  // Middle level (38.2% from low)
+                const resistance3 = low + (range * FIB_618);  // Highest level (61.8% from low)
+                
+                // Take Profit: Above Resistance 3
+                const takeProfit = low + (range * FIB_786);  // 78.6% from low (above highest resistance)
                 
                 return {
                     type: 'RESISTANCE',
                     level1: resistance1,
                     level2: resistance2,
                     level3: resistance3,
-                    stopLoss: takeProfit  // For SELL signals, this field holds Take Profit value
+                    stopLoss: takeProfit,  // For SELL signals, this field holds Take Profit value
+                    target: low - (range * 0.2)  // Target for R/R calculation
                 };
             }
         }
@@ -2107,9 +2034,12 @@ function getHTML() {
                     { label: 'Resistance 3 (Fib 61.8%)', value: fib.level3 }
                 ];
                 
-                const target = fib.level3;
-                const risk = Math.abs(last - fib.stopLoss);
-                const reward = Math.abs(target - last);
+                // For SELL: Take Profit is above resistance levels
+                const takeProfit = fib.stopLoss; // Take profit stored in stopLoss field for SELL
+                // Risk is distance from current price down to target (assuming short position in spot)
+                // For spot SELL, we assume selling at current and rebuying lower
+                const risk = Math.abs(fib.level3 - last); // Distance to resistance 3
+                const reward = Math.abs(last - takeProfit); // Distance from current to take profit
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
                 
             } else if (signal.type === 'BUY') {
@@ -2119,8 +2049,11 @@ function getHTML() {
                     { label: 'Support 3 (Fib 61.8%)', value: fib.level3 }
                 ];
                 
-                const target = last + (last - fib.level3);
+                // For BUY: Target is above current price (use the stored target)
+                const target = fib.target;
+                // Risk is distance from entry to stop loss
                 const risk = Math.abs(last - fib.stopLoss);
+                // Reward is distance from entry to target
                 const reward = Math.abs(target - last);
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
             }
@@ -2396,18 +2329,10 @@ function getHTML() {
             document.getElementById('activeMarkets').textContent = data.stats.activeMarkets;
             document.getElementById('lastUpdate').textContent = new Date(data.timestamp).toLocaleTimeString('id-ID');
             
-            document.getElementById('gainersCount').textContent = data.stats.totalGainers || 0;
-            document.getElementById('losersCount').textContent = data.stats.totalLosers || 0;
             document.getElementById('volumeCount').textContent = data.stats.totalVolumeAssets || 0;
             
             updateAllMarketsTable(data.tickers, previousMarketData ? previousMarketData.tickers : null);
             
-            if (data.topGainers && data.topGainers.length > 0) {
-                updateGainersSection(data.topGainers, previousMarketData ? previousMarketData.topGainers : null);
-            }
-            if (data.topLosers && data.topLosers.length > 0) {
-                updateLosersSection(data.topLosers, previousMarketData ? previousMarketData.topLosers : null);
-            }
             if (data.topVolume && data.topVolume.length > 0) {
                 updateVolumeSection(data.topVolume, previousMarketData ? previousMarketData.topVolume : null);
             }
@@ -2430,8 +2355,6 @@ function getHTML() {
             
             // Re-apply filters if there were search values
             if (searchValues.searchBox) filterTable();
-            if (searchValues.searchGainers) filterGainersTable();
-            if (searchValues.searchLosers) filterLosersTable();
             if (searchValues.searchVolume) filterVolumeTable();
             if (searchValues.searchBuySignals) filterBuySignalsTable();
             if (searchValues.searchSellSignals) filterSellSignalsTable();
@@ -2951,144 +2874,6 @@ function getHTML() {
             }, 800);
         }
         
-        function updateGainersSection(gainers, previousGainers) {
-            document.getElementById('gainersChartCount').textContent = gainers.length;
-            const tbody = document.getElementById('gainersBody');
-            
-            const prevMap = {};
-            if (previousGainers && Array.isArray(previousGainers)) {
-                previousGainers.forEach(g => prevMap[g.pair] = g);
-            }
-            
-            tbody.innerHTML = '';
-            
-            gainers.forEach((ticker, index) => {
-                const prevTicker = prevMap[ticker.pair];
-                
-                let priceFlash = '';
-                let changeFlash = '';
-                let volumeFlash = '';
-                
-                if (prevTicker) {
-                    if (ticker.last > prevTicker.last) {
-                        priceFlash = 'flash-up';
-                    } else if (ticker.last < prevTicker.last) {
-                        priceFlash = 'flash-down';
-                    }
-                    
-                    if (ticker.priceChangePercent > prevTicker.priceChangePercent) {
-                        changeFlash = 'flash-up';
-                    } else if (ticker.priceChangePercent < prevTicker.priceChangePercent) {
-                        changeFlash = 'flash-down';
-                    }
-                    
-                    if (ticker.volume > prevTicker.volume * 1.3) {
-                        volumeFlash = 'volume-spike';
-                    }
-                }
-                
-                const pairDisplay = ticker.isUsdtPair ? 
-                    \`<strong>\${ticker.pair.toUpperCase()}</strong><span class="usdt-badge">USDT</span>\` : 
-                    \`<strong>\${ticker.pair.toUpperCase()}</strong>\`;
-                
-                const priceIndicator = getPriceIndicator(ticker);
-                const priceColorClass = ticker.priceChangePercent >= 0 ? 'positive' : 'negative';
-                
-                const row = tbody.insertRow();
-                row.innerHTML = \`
-                    <td data-value="\${index + 1}">\${index + 1}</td>
-                    <td>\${pairDisplay}</td>
-                    <td data-value="\${ticker.last}" class="\${priceColorClass} \${priceFlash}">
-                        \${priceIndicator} \${formatPrice(ticker.last)}
-                    </td>
-                    <td data-value="\${ticker.priceChangePercent}" class="positive \${changeFlash}">
-                        ▲ \${ticker.priceChangePercent.toFixed(2)}%
-                    </td>
-                    <td data-value="\${ticker.high}" style="color:#4ade80">▲ \${formatPrice(ticker.high)}</td>
-                    <td data-value="\${ticker.low}" style="color:#ef4444">▼ \${formatPrice(ticker.low)}</td>
-                    <td data-value="\${ticker.volume}" class="\${volumeFlash}">\${formatVolume(ticker.volume)}</td>
-                \`;
-                
-                setTimeout(() => {
-                    row.querySelectorAll('.flash-up, .flash-down').forEach(cell => {
-                        cell.classList.remove('flash-up', 'flash-down');
-                    });
-                }, 800);
-            });
-            
-            // Reapply sort if active
-            reapplySortIfActive('gainersTable');
-        }
-        
-        function updateLosersSection(losers, previousLosers) {
-            document.getElementById('losersChartCount').textContent = losers.length;
-            const tbody = document.getElementById('losersBody');
-            
-            const prevMap = {};
-            if (previousLosers && Array.isArray(previousLosers)) {
-                previousLosers.forEach(l => prevMap[l.pair] = l);
-            }
-            
-            tbody.innerHTML = '';
-            
-            losers.forEach((ticker, index) => {
-                const prevTicker = prevMap[ticker.pair];
-                
-                let priceFlash = '';
-                let changeFlash = '';
-                let volumeFlash = '';
-                
-                if (prevTicker) {
-                    if (ticker.last > prevTicker.last) {
-                        priceFlash = 'flash-up';
-                    } else if (ticker.last < prevTicker.last) {
-                        priceFlash = 'flash-down';
-                    }
-                    
-                    if (ticker.priceChangePercent > prevTicker.priceChangePercent) {
-                        changeFlash = 'flash-up';
-                    } else if (ticker.priceChangePercent < prevTicker.priceChangePercent) {
-                        changeFlash = 'flash-down';
-                    }
-                    
-                    if (ticker.volume > prevTicker.volume * 1.3) {
-                        volumeFlash = 'volume-spike';
-                    }
-                }
-                
-                const pairDisplay = ticker.isUsdtPair ? 
-                    \`<strong>\${ticker.pair.toUpperCase()}</strong><span class="usdt-badge">USDT</span>\` : 
-                    \`<strong>\${ticker.pair.toUpperCase()}</strong>\`;
-                
-                const priceIndicator = getPriceIndicator(ticker);
-                const priceColorClass = ticker.priceChangePercent >= 0 ? 'positive' : 'negative';
-                
-                const row = tbody.insertRow();
-                row.innerHTML = \`
-                    <td data-value="\${index + 1}">\${index + 1}</td>
-                    <td>\${pairDisplay}</td>
-                    <td data-value="\${ticker.last}" class="\${priceColorClass} \${priceFlash}">
-                        \${priceIndicator} \${formatPrice(ticker.last)}
-                    </td>
-                    <td data-value="\${ticker.priceChangePercent}" class="negative \${changeFlash}">
-                        ▼ \${Math.abs(ticker.priceChangePercent).toFixed(2)}%
-                    </td>
-                    <td data-value="\${ticker.high}" style="color:#4ade80">▲ \${formatPrice(ticker.high)}</td>
-                    <td data-value="\${ticker.low}" style="color:#ef4444">▼ \${formatPrice(ticker.low)}</td>
-                    <td data-value="\${ticker.volume}" class="\${volumeFlash}">\${formatVolume(ticker.volume)}</td>
-                \`;
-                
-                setTimeout(() => {
-                    row.querySelectorAll('.flash-up, .flash-down').forEach(cell => {
-                        cell.classList.remove('flash-up', 'flash-down');
-                    });
-                }, 800);
-            });
-            
-            // Reapply sort if active
-            reapplySortIfActive('losersTable');
-        }
-        
         function updateVolumeSection(topVolume, previousVolume) {
             document.getElementById('volumeChartCount').textContent = topVolume.length;
             const tbody = document.getElementById('volumeBody');
@@ -3280,33 +3065,6 @@ function getHTML() {
             }
         }
         
-        function filterGainersTable() {
-            const input = document.getElementById('searchGainers').value.toUpperCase();
-            const tbody = document.getElementById('gainersBody');
-            const rows = tbody.getElementsByTagName('tr');
-            
-            for (let row of rows) {
-                const pairCell = row.getElementsByTagName('td')[1];
-                if (pairCell) {
-                    const pairText = pairCell.textContent || pairCell.innerText;
-                    row.style.display = pairText.toUpperCase().indexOf(input) > -1 ? '' : 'none';
-                }
-            }
-        }
-        
-        function filterLosersTable() {
-            const input = document.getElementById('searchLosers').value.toUpperCase();
-            const tbody = document.getElementById('losersBody');
-            const rows = tbody.getElementsByTagName('tr');
-            
-            for (let row of rows) {
-                const pairCell = row.getElementsByTagName('td')[1];
-                if (pairCell) {
-                    const pairText = pairCell.textContent || pairCell.innerText;
-                    row.style.display = pairText.toUpperCase().indexOf(input) > -1 ? '' : 'none';
-                }
-            }
-        }
         
         function filterVolumeTable() {
             const input = document.getElementById('searchVolume').value.toUpperCase();
