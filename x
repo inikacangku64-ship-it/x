@@ -1959,22 +1959,30 @@ function getHTML() {
             
             if (signalType === 'BUY') {
                 // BUY: Support levels below current price
-                // For spot trading, support levels should be below current price for buying opportunities
-                // Support 1 is closest to current price (highest support)
-                // Support 2 is middle level (38.2% Fib)
-                // Support 3 is deepest level (61.8% Fib - lowest support)
-                // Using Fibonacci retracement levels for proper spot trading logic
+                // For spot trading, we expect the price to be near or above support levels
+                // Support 1 is the highest support (closest to current price)
+                // Support 2 is at 38.2% retracement (middle level)
+                // Support 3 is at 61.8% retracement (deepest level - lowest support)
                 
-                // Calculate supports using Fibonacci retracement from high to low
-                const support1 = last;  // Current price as Support 1
-                const support2 = high - (range * FIB_382);  // 38.2% retracement (middle level)
-                const support3 = high - (range * FIB_618);  // 61.8% retracement (deepest level)
+                // Calculate support levels using Fibonacci retracement from high to low
+                // Support 1 should be closest to current price but still a support level
+                const fib236Level = high - (range * FIB_236);  // 23.6% retracement
+                const fib382Level = high - (range * FIB_382);  // 38.2% retracement
+                const fib618Level = high - (range * FIB_618);  // 61.8% retracement
+                
+                // For spot trading BUY signals, we position supports below or near current price
+                // Support 1 is the shallowest retracement (23.6% - highest support)
+                // Support 2 is 38.2% retracement
+                // Support 3 is 61.8% retracement (deepest - lowest support)
+                const support1 = fib236Level;  // Highest support
+                const support2 = fib382Level;  // Middle support (38.2% Fib)
+                const support3 = fib618Level;  // Deepest support (61.8% Fib)
                 
                 // Stop Loss: Below Support 3 with 1-2.5% margin for safety
                 const stopLossMargin = 0.02; // 2% margin below Support 3
                 const stopLoss = support3 * (1 - stopLossMargin);
                 
-                // Target for R/R calculation: Above current price (aiming for high or beyond)
+                // Target for R/R calculation: Recent high or above
                 const target = high;  // Target at recent high
                 
                 return {
@@ -1988,15 +1996,23 @@ function getHTML() {
                 
             } else { // SELL
                 // SELL: Resistance levels above current price
-                // For spot trading, resistance levels should be above current price for selling opportunities
-                // Resistance 1 is closest to current price (lowest resistance)
-                // Resistance 2 is middle level (38.2% Fib)
-                // Resistance 3 is highest level (61.8% Fib)
+                // For spot trading, we expect the price to be near or below resistance levels
+                // Resistance 1 is the lowest resistance (closest to current price)
+                // Resistance 2 is at 38.2% from low (middle level)
+                // Resistance 3 is at 61.8% from low (highest level)
                 
-                // Calculate resistances using Fibonacci extension from low
-                const resistance1 = last;  // Current price as Resistance 1
-                const resistance2 = low + (range * FIB_382);  // 38.2% from low (middle level)
-                const resistance3 = low + (range * FIB_618);  // 61.8% from low (highest level)
+                // Calculate resistance levels using Fibonacci extension from low
+                const fib236Level = low + (range * FIB_236);  // 23.6% from low
+                const fib382Level = low + (range * FIB_382);  // 38.2% from low
+                const fib618Level = low + (range * FIB_618);  // 61.8% from low
+                
+                // For spot trading SELL signals, resistance levels increase
+                // Resistance 1 is lowest (23.6% - closest to current)
+                // Resistance 2 is 38.2% from low
+                // Resistance 3 is 61.8% from low (highest resistance)
+                const resistance1 = fib236Level;  // Lowest resistance
+                const resistance2 = fib382Level;  // Middle resistance (38.2% Fib)
+                const resistance3 = fib618Level;  // Highest resistance (61.8% Fib)
                 
                 // Take Profit: Above Resistance 3 to ensure profitability
                 const takeProfitMargin = 0.02; // 2% above Resistance 3
