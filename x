@@ -2224,21 +2224,21 @@ function getHTML() {
             if (signal.type === 'SELL') {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🔴 Resistance 1: Rp 226.000<br>
-                        🔴 Resistance 2: Rp 231.000<br>
-                        🔴 Resistance 3: Rp 236.000<br>
-                        💰 Take Profit: Rp 240.000<br>
-                        💎 R/R: 1:1.7
+                        🔴 Resistance 1: \${formatPrice(targetData.targets[0].value)}<br>
+                        🔴 Resistance 2 (Fib 38.2%): \${formatPrice(targetData.targets[1].value)}<br>
+                        🔴 Resistance 3 (Fib 61.8%): \${formatPrice(targetData.targets[2].value)}<br>
+                        💰 Take Profit: \${formatPrice(targetData.stopLoss)}<br>
+                        💎 R/R: 1:\${targetData.riskReward}
                     </div>
                 \`;
             } else {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🟢 Support 1: Rp 410.000<br>
-                        🟢 Support 2 (Fib 38.2%): Rp 405.000<br>
-                        🟢 Support 3 (Fib 61.8%): Rp 400.000<br>
-                        🛑 Stop Loss: Rp 395.000<br>
-                        💎 R/R: 1:3.7
+                        🟢 Support 1: \${formatPrice(targetData.targets[0].value)}<br>
+                        🟢 Support 2 (Fib 38.2%): \${formatPrice(targetData.targets[1].value)}<br>
+                        🟢 Support 3 (Fib 61.8%): \${formatPrice(targetData.targets[2].value)}<br>
+                        🛑 Stop Loss: \${formatPrice(targetData.stopLoss)}<br>
+                        💎 R/R: 1:\${targetData.riskReward}
                     </div>
                 \`;
             }
