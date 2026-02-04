@@ -421,35 +421,171 @@ function detectTrendFromCandles(candles) {
     }
 }
 
-// Calculate Bollinger Bands (BB 20, 2)
-// BB Settings: Period 20, Standard Deviation 2
-// Used for support/resistance calculation following Indodax price movements
-function calculateBollingerBands(candles, period = 20, stdDev = 2) {
+// Bollinger Bands (20, 2) - MATCHES TradingView/Indodax Charts
+// Uses POPULATION standard deviation (divides by N, not N-1)
+function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
     if (!candles || candles.length < period) {
-        return { upper: 0, middle: 0, lower: 0, position: 'MID', posPercent: 50 };
+        console.warn('⚠️ Insufficient candles for BB(20,2). Need:', period, 'Have:', candles ? candles.length : 0);
+        
+        // Fallback for insufficient data
+        if (candles && candles.length > 0) {
+            const closes = candles.map(c => c.close);
+            const high = Math.max(...closes);
+            const low = Math.min(...closes);
+            const mid = (high + low) / 2;
+            const range = high - low;
+            
+            return {
+                upper: mid + (range / 2),
+                middle: mid,
+                lower: mid - (range / 2),
+                stdDev: range / 4,
+                posPercent: 50,
+                dataSource: 'FALLBACK'
+            };
+        }
+        
+        return {
+            upper: 0,
+            middle: 0,
+            lower: 0,
+            stdDev: 0,
+            posPercent: 50,
+            dataSource: 'EMPTY'
+        };
     }
     
-    const closes = candles.slice(-period).map(c => c.close);
-    const sma = closes.reduce((a, b) => a + b, 0) / period;
+    // ========================================
+    // STEP 1: Get LAST 20 candles (most recent)
+    // ========================================
+    const recentCandles = candles.slice(-period);
+    const closes = recentCandles.map(c => c.close);
     
-    const squaredDiffs = closes.map(c => Math.pow(c - sma, 2));
-    const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
-    const std = Math.sqrt(variance);
+    // ========================================
+    // STEP 2: Calculate SMA (Simple Moving Average)
+    // This becomes the MIDDLE BAND
+    // ========================================
+    let sum = 0;
+    for (let i = 0; i < closes.length; i++) {
+        sum += closes[i];
+    }
+    const sma = sum / period;
     
-    const upper = sma + (stdDev * std);
-    const lower = sma - (stdDev * std);
-    const current = candles[candles.length - 1].close;
+    // ========================================
+    // STEP 3: Calculate POPULATION Standard Deviation
+    // CRITICAL: Use N (not N-1) to match TradingView
+    // ========================================
     
-    let position = 'MID';
-    const range = upper - lower;
-    const posPercent = range > 0 ? ((current - lower) / range) * 100 : 50;
+    // Calculate sum of squared differences from mean
+    let sumSquaredDifferences = 0;
+    for (let i = 0; i < closes.length; i++) {
+        const difference = closes[i] - sma;
+        sumSquaredDifferences += difference * difference;
+    }
     
-    if (posPercent >= 80) position = 'OVERBOUGHT';
-    else if (posPercent <= 20) position = 'OVERSOLD';
-    else if (posPercent >= 60) position = 'ABOVE_MID';
-    else if (posPercent <= 40) position = 'BELOW_MID';
+    // POPULATION Variance = Sum of squared differences / N
+    // (NOT N-1 which is SAMPLE variance)
+    const populationVariance = sumSquaredDifferences / period;
     
-    return { upper, middle: sma, lower, position, posPercent };
+    // Standard Deviation = Square root of variance
+    const stdDev = Math.sqrt(populationVariance);
+    
+    // ========================================
+    // STEP 4: Calculate Upper and Lower Bands
+    // ========================================
+    const upperBand = sma + (stdDevMultiplier * stdDev);
+    const lowerBand = sma - (stdDevMultiplier * stdDev);
+    
+    // ========================================
+    // STEP 5: Calculate current price position (0-100%)
+    // ========================================
+    const currentClose = candles[candles.length - 1].close;
+    let posPercent = 50;
+    
+    const bandWidth = upperBand - lowerBand;
+    if (bandWidth > 0) {
+        posPercent = ((currentClose - lowerBand) / bandWidth) * 100;
+        // Clamp between 0 and 100
+        posPercent = Math.max(0, Math.min(100, posPercent));
+    }
+    
+    // ========================================
+    // DEBUG LOGGING: Verify calculation
+    // ========================================
+    const pairName = candles[0]?.pair || 'Unknown';
+    console.log('📊 BB(20,2) Calculation for', pairName, {
+        currentClose: currentClose,
+        sma: sma.toFixed(2),
+        stdDev: stdDev.toFixed(2),
+        upper: upperBand.toFixed(2),
+        middle: sma.toFixed(2),
+        lower: lowerBand.toFixed(2),
+        position: posPercent.toFixed(1) + '%',
+        bandWidth: bandWidth.toFixed(2),
+        candleCount: candles.length,
+        last5Closes: closes.slice(-5).map(c => c.toFixed(2)),
+        calculationType: 'POPULATION_STDEV'
+    });
+    
+    return {
+        upper: upperBand,
+        middle: sma,
+        lower: lowerBand,
+        stdDev: stdDev,
+        posPercent: posPercent,
+        dataSource: 'CALCULATED',
+        candleCount: candles.length
+    };
+}
+
+// Verification: Compare calculated BB with expected chart values
+// Use this to test against TradingView/Indodax chart readings
+function verifyBBCalculation(candles, expectedUpper, expectedMiddle, expectedLower, tolerance = 0.02) {
+    if (!candles || candles.length < 20) {
+        console.error('❌ Cannot verify: Need at least 20 candles');
+        return false;
+    }
+    
+    const bbData = calculateBollingerBands(candles, 20, 2);
+    
+    // Calculate percentage differences
+    const upperDiff = Math.abs((bbData.upper - expectedUpper) / expectedUpper);
+    const middleDiff = Math.abs((bbData.middle - expectedMiddle) / expectedMiddle);
+    const lowerDiff = Math.abs((bbData.lower - expectedLower) / expectedLower);
+    
+    const upperMatch = upperDiff < tolerance;
+    const middleMatch = middleDiff < tolerance;
+    const lowerMatch = lowerDiff < tolerance;
+    
+    const allMatch = upperMatch && middleMatch && lowerMatch;
+    
+    console.log('🔍 BB(20,2) Verification:', {
+        pair: candles[0]?.pair || 'Unknown',
+        calculated: {
+            upper: bbData.upper.toFixed(2),
+            middle: bbData.middle.toFixed(2),
+            lower: bbData.lower.toFixed(2)
+        },
+        expected: {
+            upper: expectedUpper.toFixed(2),
+            middle: expectedMiddle.toFixed(2),
+            lower: expectedLower.toFixed(2)
+        },
+        difference: {
+            upper: (upperDiff * 100).toFixed(2) + '%',
+            middle: (middleDiff * 100).toFixed(2) + '%',
+            lower: (lowerDiff * 100).toFixed(2) + '%'
+        },
+        match: {
+            upper: upperMatch ? '✅' : '❌',
+            middle: middleMatch ? '✅' : '❌',
+            lower: lowerMatch ? '✅' : '❌',
+            overall: allMatch ? '✅ PASS' : '❌ FAIL'
+        },
+        tolerance: (tolerance * 100).toFixed(1) + '%'
+    });
+    
+    return allMatch;
 }
 
 /*
@@ -505,31 +641,31 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = nu
   
   // Calculate Bollinger Bands - use true BB(20,2) when candles available
   let bbSignal = 'NEUTRAL';
-  let bbData = { position: 'MID', posPercent: 50 };
+  let bbData = { upper: 0, middle: 0, lower: 0, posPercent: 50 };
+  let bbPercent = 50;
   
   if (candles && candles.length >= 20) {
-    // TRUE BB(20,2) calculation
+    // Use CORRECTED BB calculation with population stdev
     bbData = calculateBollingerBands(candles, 20, 2);
-    const bbPercent = bbData.posPercent;
+    bbPercent = bbData.posPercent;
     
-    if (bbPercent >= 80) bbSignal = 'OVERBOUGHT';
-    else if (bbPercent <= 20) bbSignal = 'OVERSOLD';
+    // Determine BB signal based on position
+    if (bbPercent >= 90) bbSignal = 'EXTREME_OVERBOUGHT';
+    else if (bbPercent >= 80) bbSignal = 'OVERBOUGHT';
     else if (bbPercent >= 60) bbSignal = 'ABOVE_MID';
-    else if (bbPercent <= 40) bbSignal = 'BELOW_MID';
+    else if (bbPercent >= 40) bbSignal = 'NEUTRAL';
+    else if (bbPercent >= 20) bbSignal = 'BELOW_MID';
+    else if (bbPercent >= 10) bbSignal = 'OVERSOLD';
+    else bbSignal = 'EXTREME_OVERSOLD';
   } else {
-    // Fallback to estimation from 24h range
-    const midBand = (ticker.high + ticker.low) / 2;
-    const bandWidth = ticker.high - ticker.low;
-    
-    if (bandWidth > 0) {
-      const distanceFromUpper = ((ticker.high - ticker.last) / bandWidth) * 100;
-      const distanceFromLower = ((ticker.last - ticker.low) / bandWidth) * 100;
-      
-      if (distanceFromLower < 10) bbSignal = 'OVERSOLD';
-      else if (distanceFromUpper < 10) bbSignal = 'OVERBOUGHT';
-      else if (ticker.last > midBand) bbSignal = 'ABOVE_MID';
-      else bbSignal = 'BELOW_MID';
-    }
+    // Fallback if insufficient candles
+    const pricePosition = ((ticker.last - ticker.low) / (ticker.high - ticker.low)) * 100 || 50;
+    bbPercent = pricePosition;
+    if (pricePosition >= 80) bbSignal = 'OVERBOUGHT';
+    else if (pricePosition >= 60) bbSignal = 'ABOVE_MID';
+    else if (pricePosition >= 40) bbSignal = 'NEUTRAL';
+    else if (pricePosition >= 20) bbSignal = 'BELOW_MID';
+    else bbSignal = 'OVERSOLD';
   }
   
   const volumeRatio = ticker.volume / avgVolume;
@@ -2188,33 +2324,121 @@ function getHTML() {
             return lastK;
         }
 
-        // Calculate Bollinger Bands from real data (20 period, 2 std dev)
-        function calculateBollingerBands(candles, period = 20, stdDev = 2) {
+        // Bollinger Bands (20, 2) - MATCHES TradingView/Indodax Charts
+        // Uses POPULATION standard deviation (divides by N, not N-1)
+        function calculateBollingerBands(candles, period = 20, stdDevMultiplier = 2) {
             if (!candles || candles.length < period) {
-                return { upper: 0, middle: 0, lower: 0, position: 'MID', posPercent: 50 };
+                console.warn('⚠️ Insufficient candles for BB(20,2). Need:', period, 'Have:', candles ? candles.length : 0);
+                
+                // Fallback for insufficient data
+                if (candles && candles.length > 0) {
+                    const closes = candles.map(c => c.close);
+                    const high = Math.max(...closes);
+                    const low = Math.min(...closes);
+                    const mid = (high + low) / 2;
+                    const range = high - low;
+                    
+                    return {
+                        upper: mid + (range / 2),
+                        middle: mid,
+                        lower: mid - (range / 2),
+                        stdDev: range / 4,
+                        posPercent: 50,
+                        dataSource: 'FALLBACK'
+                    };
+                }
+                
+                return {
+                    upper: 0,
+                    middle: 0,
+                    lower: 0,
+                    stdDev: 0,
+                    posPercent: 50,
+                    dataSource: 'EMPTY'
+                };
             }
             
-            const closes = candles.slice(-period).map(c => c.close);
-            const sma = closes.reduce((a, b) => a + b, 0) / period;
+            // ========================================
+            // STEP 1: Get LAST 20 candles (most recent)
+            // ========================================
+            const recentCandles = candles.slice(-period);
+            const closes = recentCandles.map(c => c.close);
             
-            const squaredDiffs = closes.map(c => Math.pow(c - sma, 2));
-            const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
-            const std = Math.sqrt(variance);
+            // ========================================
+            // STEP 2: Calculate SMA (Simple Moving Average)
+            // This becomes the MIDDLE BAND
+            // ========================================
+            let sum = 0;
+            for (let i = 0; i < closes.length; i++) {
+                sum += closes[i];
+            }
+            const sma = sum / period;
             
-            const upper = sma + (stdDev * std);
-            const lower = sma - (stdDev * std);
-            const current = candles[candles.length - 1].close;
+            // ========================================
+            // STEP 3: Calculate POPULATION Standard Deviation
+            // CRITICAL: Use N (not N-1) to match TradingView
+            // ========================================
             
-            let position = 'MID';
-            const range = upper - lower;
-            const posPercent = range > 0 ? ((current - lower) / range) * 100 : 50;
+            // Calculate sum of squared differences from mean
+            let sumSquaredDifferences = 0;
+            for (let i = 0; i < closes.length; i++) {
+                const difference = closes[i] - sma;
+                sumSquaredDifferences += difference * difference;
+            }
             
-            if (posPercent >= 80) position = 'OVERBOUGHT';
-            else if (posPercent <= 20) position = 'OVERSOLD';
-            else if (posPercent >= 60) position = 'UPPER';
-            else if (posPercent <= 40) position = 'LOWER';
+            // POPULATION Variance = Sum of squared differences / N
+            // (NOT N-1 which is SAMPLE variance)
+            const populationVariance = sumSquaredDifferences / period;
             
-            return { upper, middle: sma, lower, position, posPercent };
+            // Standard Deviation = Square root of variance
+            const stdDev = Math.sqrt(populationVariance);
+            
+            // ========================================
+            // STEP 4: Calculate Upper and Lower Bands
+            // ========================================
+            const upperBand = sma + (stdDevMultiplier * stdDev);
+            const lowerBand = sma - (stdDevMultiplier * stdDev);
+            
+            // ========================================
+            // STEP 5: Calculate current price position (0-100%)
+            // ========================================
+            const currentClose = candles[candles.length - 1].close;
+            let posPercent = 50;
+            
+            const bandWidth = upperBand - lowerBand;
+            if (bandWidth > 0) {
+                posPercent = ((currentClose - lowerBand) / bandWidth) * 100;
+                // Clamp between 0 and 100
+                posPercent = Math.max(0, Math.min(100, posPercent));
+            }
+            
+            // ========================================
+            // DEBUG LOGGING: Verify calculation
+            // ========================================
+            const pairName = candles[0]?.pair || 'Unknown';
+            console.log('📊 BB(20,2) Calculation for', pairName, {
+                currentClose: currentClose,
+                sma: sma.toFixed(2),
+                stdDev: stdDev.toFixed(2),
+                upper: upperBand.toFixed(2),
+                middle: sma.toFixed(2),
+                lower: lowerBand.toFixed(2),
+                position: posPercent.toFixed(1) + '%',
+                bandWidth: bandWidth.toFixed(2),
+                candleCount: candles.length,
+                last5Closes: closes.slice(-5).map(c => c.toFixed(2)),
+                calculationType: 'POPULATION_STDEV'
+            });
+            
+            return {
+                upper: upperBand,
+                middle: sma,
+                lower: lowerBand,
+                stdDev: stdDev,
+                posPercent: posPercent,
+                dataSource: 'CALCULATED',
+                candleCount: candles.length
+            };
         }
 
         // Calculate EMA helper function
