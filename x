@@ -134,7 +134,7 @@ function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
   
   // Calculate approximate Bollinger Bands based on high/low range
   const midBand = (high + low) / 2;
-  const bandWidth = high - low;
+  const bandRange = high - low;
   
   // Standard Bollinger Bands use 2 standard deviations
   // Approximate: Upper Band = High, Lower Band = Low, Middle = Average
@@ -142,27 +142,29 @@ function calculateBBPositionForRecommendation(ticker, high, low, timeframe) {
   const lowerBand = low;
   
   // Calculate support levels based on Lower Bollinger Band (LBB)
-  const support1 = lowerBand; // LBB itself
-  const support2 = lowerBand * 0.97; // 3% below LBB
-  const support3 = lowerBand * 0.94; // 6% below LBB
+  // Consistent with calculateBollingerBandLevels logic
+  const support1 = lowerBand + (bandRange * 0.05); // 5% above LBB
+  const support2 = support1 * 0.968; // 3.2% below Support 1
+  const support3 = support1 * 0.935; // 6.5% below Support 1
   
   // Calculate resistance levels based on Upper Bollinger Band (UBB)
-  const resistance1 = upperBand; // UBB itself
-  const resistance2 = upperBand * 1.02; // 2% above UBB
-  const resistance3 = upperBand * 1.04; // 4% above UBB
+  // Consistent with calculateBollingerBandLevels logic
+  const resistance1 = upperBand - (bandRange * 0.03); // 3% below UBB
+  const resistance2 = resistance1 * 1.022; // 2.2% above Resistance 1
+  const resistance3 = resistance1 * 1.044; // 4.4% above Resistance 1
   
   const nearSupport = (
     Math.abs(last - support1) / last < tolerance ||
     Math.abs(last - support2) / last < tolerance ||
     Math.abs(last - support3) / last < tolerance ||
-    last <= lowerBand * 1.02 // Within 2% above lower band
+    last <= support1 * 1.02 // Within 2% above support 1
   );
   
   const nearResistance = (
     Math.abs(last - resistance1) / last < tolerance ||
     Math.abs(last - resistance2) / last < tolerance ||
     Math.abs(last - resistance3) / last < tolerance ||
-    last >= upperBand * 0.98 // Within 2% below upper band
+    last >= resistance1 * 0.98 // Within 2% below resistance 1
   );
   
   return { nearSupport, nearResistance };
@@ -2170,7 +2172,7 @@ function getHTML() {
                     macd: macdStatus === 'bullish' ? '✅' : macdStatus === 'bearish' ? '❌' : '➖',
                     volume: volStatus === 'bullish' ? '✅' : volStatus === 'bearish' ? '❌' : '➖',
                     momentum: momentumStatus === 'bullish' ? '✅' : momentumStatus === 'bearish' ? '❌' : '➖',
-                    fib: srStatus === 'bullish' ? '✅' : srStatus === 'bearish' ? '❌' : '➖',
+                    sr: srStatus === 'bullish' ? '✅' : srStatus === 'bearish' ? '❌' : '➖',
                     trend: trendStatus === 'bullish' ? '✅' : trendStatus === 'bearish' ? '❌' : '➖'
                 }
             };
@@ -2212,7 +2214,7 @@ function getHTML() {
                     <strong>\${winRateData.winRate}%</strong> \${winRateData.accuracy}<br>
                     ─────────<br>
                     RSI: \${details.rsi} StochRSI: \${details.stochRSI} BB: \${details.bb}<br>
-                    MACD: \${details.macd} Vol: \${details.volume} S/R: \${details.fib}<br>
+                    MACD: \${details.macd} Vol: \${details.volume} S/R: \${details.sr}<br>
                     <strong>\${count}/\${winRateData.total} Indicators</strong>
                 </div>
             \`;
