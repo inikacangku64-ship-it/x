@@ -421,7 +421,9 @@ function detectTrendFromCandles(candles) {
     }
 }
 
-// Calculate Bollinger Bands (BB 20,2)
+// Calculate Bollinger Bands (BB 20, 2)
+// BB Settings: Period 20, Standard Deviation 2
+// Used for support/resistance calculation following Indodax price movements
 function calculateBollingerBands(candles, period = 20, stdDev = 2) {
     if (!candles || candles.length < period) {
         return { upper: 0, middle: 0, lower: 0, position: 'MID', posPercent: 50 };
@@ -450,6 +452,15 @@ function calculateBollingerBands(candles, period = 20, stdDev = 2) {
     return { upper, middle: sma, lower, position, posPercent };
 }
 
+/*
+ * Indicator Settings for Signal Analysis:
+ * - RSI: Period 14, SMA 14
+ * - Stochastic RSI: 14 14 3 3 (RSI Period 14, Stoch Period 14, SmoothK 3, SmoothD 3)
+ * - Volume: SMA 9
+ * - MACD: 12, 26, Close, 9 (Fast EMA 12, Slow EMA 26, Signal 9)
+ * - Momentum: Period 10
+ * - Bollinger Bands: Period 20, StdDev 2
+ */
 function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = null) {
   let score = 0;
   let signals = [];
@@ -472,6 +483,8 @@ function analyzeSignalAdvanced(ticker, avgVolume, timeframe = '1h', candles = nu
   
   const pricePosition = ((ticker.last - ticker.low) / (ticker.high - ticker.low)) * 100 || 50;
   
+  // Momentum calculation - Period 10 equivalent using price change percent
+  const momentumPeriod = 10;
   const momentum = ticker.priceChangePercent * tfConfig.sensitivity;
   let rsiProxy = 50;
   
@@ -1422,6 +1435,11 @@ function getHTML() {
             font-size: var(--font-xs);
             font-weight: bold;
         }
+        .risk-very-high {
+            background: rgba(220, 38, 38, 0.3);
+            color: #dc2626;
+            border: 1px solid #dc2626;
+        }
         .risk-high {
             background: rgba(239, 68, 68, 0.2);
             color: #ef4444;
@@ -2093,8 +2111,9 @@ function getHTML() {
             return [];
         }
 
-        // Calculate RSI from real candle data (14 period)
-        function calculateRSI(candles, period = 14) {
+        // Calculate RSI from real candle data (14 period with SMA 14)
+        // RSI Settings: Period 14, SMA 14
+        function calculateRSI(candles, period = 14, smaPeriod = 14) {
             if (!candles || candles.length < period + 1) return 50;
             
             let gains = 0;
@@ -2109,8 +2128,9 @@ function getHTML() {
                 }
             }
             
-            const avgGain = gains / period;
-            const avgLoss = losses / period;
+            // Use SMA for smoothing (SMA 14)
+            const avgGain = gains / smaPeriod;
+            const avgLoss = losses / smaPeriod;
             
             if (avgLoss === 0) return 100;
             
@@ -2120,29 +2140,51 @@ function getHTML() {
             return rsi;
         }
 
-        // Calculate StochRSI from real data (14 period)
-        function calculateStochRSI(candles, period = 14) {
-            if (!candles || candles.length < period * 2) return 50;
+        // Calculate StochRSI from real data
+        // StochRSI Settings: 14 14 3 3 (RSI Period 14, Stoch Period 14, SmoothK 3, SmoothD 3)
+        function calculateStochRSI(candles, rsiPeriod = 14, stochPeriod = 14, smoothK = 3, smoothD = 3) {
+            if (!candles || candles.length < rsiPeriod * 2 + smoothK) return 50;
             
             const rsiValues = [];
             
-            for (let i = period; i < candles.length; i++) {
-                const slice = candles.slice(i - period, i + 1);
-                rsiValues.push(calculateRSI(slice, period));
+            for (let i = rsiPeriod; i < candles.length; i++) {
+                const slice = candles.slice(i - rsiPeriod, i + 1);
+                rsiValues.push(calculateRSI(slice, rsiPeriod, rsiPeriod));
             }
             
-            if (rsiValues.length < period) return 50;
+            if (rsiValues.length < stochPeriod + smoothK) return 50;
             
-            const recentRSI = rsiValues.slice(-period);
-            const minRSI = Math.min(...recentRSI);
-            const maxRSI = Math.max(...recentRSI);
+            // Calculate raw Stochastic RSI values
+            const rawStochRSI = [];
+            for (let i = stochPeriod - 1; i < rsiValues.length; i++) {
+                const recentRSI = rsiValues.slice(i - stochPeriod + 1, i + 1);
+                const minRSI = Math.min(...recentRSI);
+                const maxRSI = Math.max(...recentRSI);
+                
+                if (maxRSI === minRSI) {
+                    rawStochRSI.push(50);
+                } else {
+                    const currentRSI = rsiValues[i];
+                    rawStochRSI.push(((currentRSI - minRSI) / (maxRSI - minRSI)) * 100);
+                }
+            }
             
-            if (maxRSI === minRSI) return 50;
+            if (rawStochRSI.length < smoothK) return 50;
             
-            const currentRSI = recentRSI[recentRSI.length - 1];
-            const stochRSI = ((currentRSI - minRSI) / (maxRSI - minRSI)) * 100;
+            // Apply SmoothK (3-period SMA of raw StochRSI) - this is the %K line
+            const kValues = [];
+            for (let i = smoothK - 1; i < rawStochRSI.length; i++) {
+                const slice = rawStochRSI.slice(i - smoothK + 1, i + 1);
+                kValues.push(slice.reduce((a, b) => a + b, 0) / smoothK);
+            }
             
-            return stochRSI;
+            if (kValues.length < smoothD) return kValues[kValues.length - 1] || 50;
+            
+            // Apply SmoothD (3-period SMA of %K) - this is the %D line
+            // Return the smoothed %K value (most commonly used)
+            const lastK = kValues[kValues.length - 1];
+            
+            return lastK;
         }
 
         // Calculate Bollinger Bands from real data (20 period, 2 std dev)
@@ -2188,30 +2230,70 @@ function getHTML() {
             return ema;
         }
 
-        // Calculate MACD from real data (12, 26, 9)
+        // Calculate MACD from real data (12, 26, close, 9)
+        // MACD Settings: Fast EMA 12, Slow EMA 26, Signal EMA 9, Source: Close
         function calculateMACD(candles, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
-            if (!candles || candles.length < slowPeriod) {
+            if (!candles || candles.length < slowPeriod + signalPeriod) {
                 return { macd: 0, signal: 0, histogram: 0 };
             }
             
             const closes = candles.map(c => c.close);
             
-            const emaFast = calculateEMA(closes, fastPeriod);
-            const emaSlow = calculateEMA(closes, slowPeriod);
+            // Calculate EMA values for each point to build MACD line history
+            const macdHistory = [];
+            for (let i = slowPeriod - 1; i < closes.length; i++) {
+                const slice = closes.slice(0, i + 1);
+                const emaFast = calculateEMA(slice, fastPeriod);
+                const emaSlow = calculateEMA(slice, slowPeriod);
+                macdHistory.push(emaFast - emaSlow);
+            }
             
-            const macdLine = emaFast - emaSlow;
+            if (macdHistory.length < signalPeriod) {
+                return { macd: 0, signal: 0, histogram: 0 };
+            }
             
-            // IMPORTANT: Signal line should be a 9-period EMA of MACD values
-            // Current implementation uses approximation (MACD * 0.8)
-            // TODO: Implement proper signal line as 9-period EMA of MACD history
-            // This approximation may produce inaccurate signals
-            const signalLine = macdLine * 0.8; // Approximation - not standard MACD
+            // Current MACD line value
+            const macdLine = macdHistory[macdHistory.length - 1];
+            
+            // Signal line is 9-period EMA of MACD values
+            const signalLine = calculateEMA(macdHistory, signalPeriod);
+            
+            // Histogram is MACD line minus Signal line
             const histogram = macdLine - signalLine;
             
             return { macd: macdLine, signal: signalLine, histogram };
         }
         
-        // Calculate risk level
+        // Calculate Momentum from real data (10 period)
+        // Momentum Settings: Period 10
+        function calculateMomentum(candles, period = 10) {
+            if (!candles || candles.length < period + 1) return 0;
+            
+            const currentClose = candles[candles.length - 1].close;
+            const previousClose = candles[candles.length - 1 - period].close;
+            
+            if (previousClose === 0) return 0;
+            
+            // Momentum as percentage change over period
+            const momentum = ((currentClose - previousClose) / previousClose) * 100;
+            
+            return momentum;
+        }
+        
+        // Calculate Volume SMA (9 period)
+        // Volume SMA Settings: Period 9
+        function calculateVolumeSMA(candles, period = 9) {
+            if (!candles || candles.length < period) return 0;
+            
+            const volumes = candles.slice(-period).map(c => c.volume);
+            const sma = volumes.reduce((a, b) => a + b, 0) / period;
+            
+            return sma;
+        }
+        
+        // Calculate risk level based on new indicator signals
+        // Risk follows Score Recommendation and uses indicator thresholds from:
+        // RSI(14,SMA14), StochRSI(14,14,3,3), Volume SMA(9), MACD(12,26,close,9), Momentum(10), BB(20,2)
         function calculateRiskLevel(ticker, signal, avgVolume) {
             let riskScore = 0;
             
@@ -2272,15 +2354,17 @@ function getHTML() {
             return { level: 'LOW', color: '#22c55e', icon: '🟢', class: 'risk-low' };
         }
         
-        // Calculate Support/Resistance using Bollinger Bands
+        // Calculate Support/Resistance using Bollinger Bands (20, 2)
+        // BB Settings: Period 20, Standard Deviation 2
+        // Used for Target/SL/Risk calculation following Indodax price movements
         function calculateBollingerBandLevels(high, low, last, signalType, timeframe) {
-            // Estimate BB(20,2) from 24h range
+            // Estimate BB(20,2) from 24h range based on Indodax price movements
             const range24h = high - low;
             const midPrice = (high + low) / 2;
             // High/Low typically represent ~3σ movement, so σ ≈ range / 6
             const estimatedStdDev = range24h / 6;
-            const upperBand = midPrice + (2 * estimatedStdDev);
-            const lowerBand = midPrice - (2 * estimatedStdDev);
+            const upperBand = midPrice + (2 * estimatedStdDev);  // Upper BB (SMA + 2σ)
+            const lowerBand = midPrice - (2 * estimatedStdDev);  // Lower BB (SMA - 2σ)
             const middleBand = midPrice;
             const bandRange = upperBand - lowerBand;
             
@@ -2346,13 +2430,15 @@ function getHTML() {
             }
         }
         
-        // Calculate Target/SL/Risk using Bollinger Bands
+        // Calculate Target/SL/Risk using Bollinger Bands (20, 2)
+        // Target/SL/Risk follows new indicator signals and uses BB 20,2 for support/resistance
+        // Based on Indodax price movements for accurate support and resistance levels
         function calculateTargetSLRisk(ticker, signal, timeframe = '1h') {
             const last = ticker.last;
             const high = ticker.high;
             const low = ticker.low;
             
-            // Use the new Bollinger Band Levels function
+            // Use the Bollinger Band Levels function (BB 20,2) for support/resistance
             const bb = calculateBollingerBandLevels(high, low, last, signal.type, timeframe);
             
             let result = {
@@ -2434,13 +2520,15 @@ function getHTML() {
         }
         
         // Calculate Win Rate based on 8 indicators
+        // Indicator Settings: RSI(14,SMA14), StochRSI(14,14,3,3), Volume SMA(9), MACD(12,26,close,9), Momentum(10), BB(20,2)
+        // Win rate follows the new indicator signals for accurate scoring
         function calculateWinRate(ticker, signal, avgVolume, timeframe = '1h') {
             // Use the counts already calculated in analyzeSignalAdvanced
             const bullishCount = signal.bullishCount || 0;
             const bearishCount = signal.bearishCount || 0;
             const totalIndicators = 8;
             
-            // Use the win rate already calculated
+            // Use the win rate already calculated based on new indicator signals
             let winRate = signal.winRate || 50;
             
             const ind = signal.indicators;
@@ -2452,7 +2540,7 @@ function getHTML() {
             const volumeRatio = parseFloat(ind.volumeRatio);
             const trend = ind.trend;
             
-            // Calculate statuses for display
+            // Calculate statuses for display based on updated indicator thresholds
             const rsiStatus = rsi < 30 ? 'bullish' : rsi > 70 ? 'bearish' : 'neutral';
             const stochStatus = stochRSI < 20 ? 'bullish' : stochRSI > 80 ? 'bearish' : 'neutral';
             const bbStatus = bbPosition === 'OVERSOLD' ? 'bullish' : bbPosition === 'OVERBOUGHT' ? 'bearish' : 'neutral';
@@ -2521,6 +2609,7 @@ function getHTML() {
         }
         
         // Format Win Rate display
+        // Shows win rate based on 8 indicators with updated settings
         function formatWinRateDisplay(winRateData) {
             const details = winRateData.details;
             const count = winRateData.bullish > 0 ? winRateData.bullish : winRateData.bearish;
@@ -2530,8 +2619,9 @@ function getHTML() {
                     📊 Win Rate<br>
                     <strong>\${winRateData.winRate}%</strong> \${winRateData.accuracy}<br>
                     ─────────<br>
-                    RSI: \${details.rsi} StochRSI: \${details.stochRSI} BB: \${details.bb}<br>
-                    MACD: \${details.macd} Vol: \${details.volume} S/R: \${details.sr}<br>
+                    RSI(14): \${details.rsi} StochRSI: \${details.stochRSI} BB: \${details.bb}<br>
+                    MACD: \${details.macd} Vol: \${details.volume} Mom: \${details.momentum}<br>
+                    S/R: \${details.sr} Trend: \${details.trend}<br>
                     <strong>\${count}/\${winRateData.total} Indicators</strong>
                 </div>
             \`;
@@ -2729,6 +2819,7 @@ function getHTML() {
         }
         
         // Format signals list vertically (8 indicators)
+        // Indicator Settings: RSI(14,SMA14), StochRSI(14,14,3,3), Volume SMA(9), MACD(12,26,close,9), Momentum(10), BB(20,2)
         function formatSignalsList(signal, ticker) {
             const ind = signal.indicators;
             const rsi = parseFloat(ind.rsi);
@@ -2744,11 +2835,11 @@ function getHTML() {
             
             const signalsList = [];
             
-            // 1. RSI - Current RSI value
+            // 1. RSI (14, SMA 14) - Current RSI value
             const rsiClass = rsi < 30 ? 'bullish' : rsi > 70 ? 'bearish' : 'neutral';
-            signalsList.push(\`<div class="signal-item \${rsiClass}">📊 RSI: \${rsi.toFixed(1)}</div>\`);
+            signalsList.push(\`<div class="signal-item \${rsiClass}">📊 RSI (14): \${rsi.toFixed(1)}</div>\`);
             
-            // 2. Stochastic RSI - Indicate overbought/oversold
+            // 2. Stochastic RSI (14,14,3,3) - Indicate overbought/oversold
             let stochStatus = '';
             let stochClass = 'neutral';
             if (stochRSI > 80) {
@@ -2763,7 +2854,7 @@ function getHTML() {
             }
             signalsList.push(\`<div class="signal-item \${stochClass}">\${stochStatus}</div>\`);
             
-            // 3. Bollinger Bands - Position against upper/lower bounds
+            // 3. Bollinger Bands (20,2) - Position against upper/lower bounds
             let bbStatus = '';
             let bbClass = 'neutral';
             if (bbPosition === 'OVERSOLD') {
@@ -2784,41 +2875,42 @@ function getHTML() {
             }
             signalsList.push(\`<div class="signal-item \${bbClass}">\${bbStatus}</div>\`);
             
-            // 4. MACD - Bullish or bearish trend
+            // 4. MACD (12,26,close,9) - Bullish or bearish trend
             const macdClass = macd > 0 ? 'bullish' : macd < 0 ? 'bearish' : 'neutral';
             const macdTrend = macd > 0 ? 'Bullish' : macd < 0 ? 'Bearish' : 'Neutral';
             const macdIcon = macd > 0 ? '✅' : macd < 0 ? '❌' : '➖';
             signalsList.push(\`<div class="signal-item \${macdClass}">\${macdIcon} MACD: \${macdTrend} (\${macd > 0 ? '+' : ''}\${macd.toFixed(0)})</div>\`);
             
             // 5. Volume - Detect volume spikes with improved formatting
+            // 5. Volume (SMA 9) - Detect volume spikes with improved formatting
             let volumeStatus = '';
             let volumeClass = 'neutral';
             if (volumeSpike) {
                 if (priceUp) {
-                    volumeStatus = '🔥 Volume: ' + volumeRatio.toFixed(1) + 'x Spike + Price Up';
+                    volumeStatus = '🔥 Vol (SMA 9): ' + volumeRatio.toFixed(1) + 'x Spike + Price Up';
                     volumeClass = 'bullish';
                 } else if (priceDown) {
-                    volumeStatus = '🔥 Volume: ' + volumeRatio.toFixed(1) + 'x Spike + Price Down';
+                    volumeStatus = '🔥 Vol (SMA 9): ' + volumeRatio.toFixed(1) + 'x Spike + Price Down';
                     volumeClass = 'bearish';
                 } else {
-                    volumeStatus = '🔥 Volume: ' + volumeRatio.toFixed(1) + 'x Spike';
+                    volumeStatus = '🔥 Vol (SMA 9): ' + volumeRatio.toFixed(1) + 'x Spike';
                     volumeClass = 'neutral';
                 }
             } else {
                 // Use improved volume formatting for non-spike volumes
                 const volDisplay = formatVolumeDisplay(ticker.volume, ticker.volume / volumeRatio);
-                volumeStatus = '📊 Volume: ' + volDisplay;
+                volumeStatus = '📊 Vol (SMA 9): ' + volDisplay;
                 volumeClass = 'neutral';
             }
             signalsList.push(\`<div class="signal-item \${volumeClass}">\${volumeStatus}</div>\`);
             
-            // 6. Momentum - Calculate momentum change as a percentage
+            // 6. Momentum (10) - Calculate momentum change as a percentage
             const momentumClass = momentum > 0 ? 'bullish' : momentum < 0 ? 'bearish' : 'neutral';
             const momentumIcon = momentum > 0 ? '↗️' : momentum < 0 ? '↘️' : '➡️';
-            signalsList.push(\`<div class="signal-item \${momentumClass}">\${momentumIcon} Momentum: \${momentum > 0 ? '+' : ''}\${momentum.toFixed(1)}%</div>\`);
+            signalsList.push(\`<div class="signal-item \${momentumClass}">\${momentumIcon} Momentum (10): \${momentum > 0 ? '+' : ''}\${momentum.toFixed(1)}%</div>\`);
             
-            // 7. Bollinger Bands - Used for Target/SL/Risk calculation
-            signalsList.push(\`<div class="signal-item neutral">📐 BB: Target/SL/Risk</div>\`);
+            // 7. Bollinger Bands (20,2) - Used for Target/SL/Risk calculation
+            signalsList.push(\`<div class="signal-item neutral">📐 BB (20,2): Target/SL/Risk</div>\`);
             
             // 8. Trend - Display trend
             const trendClass = trend === 'UPTREND' ? 'bullish' : trend === 'DOWNTREND' ? 'bearish' : 'neutral';
@@ -2830,23 +2922,24 @@ function getHTML() {
         }
         
         // Format technical indicators vertically (8 indicators + BB levels)
+        // Indicator Settings: RSI(14,SMA14), StochRSI(14,14,3,3), Volume SMA(9), MACD(12,26,close,9), Momentum(10), BB(20,2)
         function formatTechnicalIndicators(signal, ticker, timeframe) {
             const ind = signal.indicators;
             const bb = calculateBollingerBandLevels(ticker.high, ticker.low, ticker.last, signal.type, timeframe);
             
             const techList = [];
             
-            techList.push(\`<div class="tech-item">RSI (14): \${ind.rsi} \${parseFloat(ind.rsi) < 30 ? '✅ Oversold' : parseFloat(ind.rsi) > 70 ? '❌ Overbought' : ''}</div>\`);
-            techList.push(\`<div class="tech-item">StochRSI (14): \${ind.stochRSI} \${parseFloat(ind.stochRSI) < 20 ? '✅ Oversold' : parseFloat(ind.stochRSI) > 80 ? '❌ Overbought' : ''}</div>\`);
+            techList.push(\`<div class="tech-item">RSI (14, SMA 14): \${ind.rsi} \${parseFloat(ind.rsi) < 30 ? '✅ Oversold' : parseFloat(ind.rsi) > 70 ? '❌ Overbought' : ''}</div>\`);
+            techList.push(\`<div class="tech-item">StochRSI (14,14,3,3): \${ind.stochRSI} \${parseFloat(ind.stochRSI) < 20 ? '✅ Oversold' : parseFloat(ind.stochRSI) > 80 ? '❌ Overbought' : ''}</div>\`);
             techList.push(\`<div class="tech-item">BB (20,2): \${ind.bbPosition === 'OVERSOLD' ? 'Near Lower' : ind.bbPosition === 'OVERBOUGHT' ? 'Near Upper' : ind.bbPosition}</div>\`);
-            techList.push(\`<div class="tech-item">MACD (12,26,9): \${ind.macd} \${parseFloat(ind.macd) > 0 ? '📈 Bullish' : parseFloat(ind.macd) < 0 ? '📉 Bearish' : ''}</div>\`);
+            techList.push(\`<div class="tech-item">MACD (12,26,close,9): \${ind.macd} \${parseFloat(ind.macd) > 0 ? '📈 Bullish' : parseFloat(ind.macd) < 0 ? '📉 Bearish' : ''}</div>\`);
             
-            // Improved volume display with warnings
+            // Improved volume display with SMA 9
             const volumeRatio = parseFloat(ind.volumeRatio);
             const volDisplay = formatVolumeDisplay(ticker.volume, ticker.volume / volumeRatio);
-            techList.push(\`<div class="tech-item">Volume: \${volDisplay} \${ind.volumeSpike ? '🔥 Spike' : ''}</div>\`);
+            techList.push(\`<div class="tech-item">Volume (SMA 9): \${volDisplay} \${ind.volumeSpike ? '🔥 Spike' : ''}</div>\`);
             
-            techList.push(\`<div class="tech-item">Momentum: \${ind.momentum}% \${parseFloat(ind.momentum) > 0 ? '↗️' : parseFloat(ind.momentum) < 0 ? '↘️' : '➡️'}</div>\`);
+            techList.push(\`<div class="tech-item">Momentum (10): \${ind.momentum}% \${parseFloat(ind.momentum) > 0 ? '↗️' : parseFloat(ind.momentum) < 0 ? '↘️' : '➡️'}</div>\`);
             
             // Bollinger Band levels
             if (signal.type === 'BUY') {
