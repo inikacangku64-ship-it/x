@@ -1961,20 +1961,21 @@ function getHTML() {
                 // BUY: Support levels below current price
                 // For spot trading, support levels should be below current price for buying opportunities
                 // Support 1 is closest to current price (highest support)
-                // Support 2 is middle level
-                // Support 3 is deepest level (lowest support)
-                // Using reversed Fibonacci levels for proper spot trading logic
+                // Support 2 is middle level (38.2% Fib)
+                // Support 3 is deepest level (61.8% Fib - lowest support)
+                // Using Fibonacci retracement levels for proper spot trading logic
                 
-                // Calculate supports below current price using Fibonacci retracement from high to low
-                const support1 = high - (range * FIB_236);  // Closest to current (23.6% retracement)
-                const support2 = high - (range * FIB_382);  // Middle level (38.2% retracement)
-                const support3 = high - (range * FIB_618);  // Deepest level (61.8% retracement)
+                // Calculate supports using Fibonacci retracement from high to low
+                const support1 = last;  // Current price as Support 1
+                const support2 = high - (range * FIB_382);  // 38.2% retracement (middle level)
+                const support3 = high - (range * FIB_618);  // 61.8% retracement (deepest level)
                 
-                // Stop Loss: Below Support 3
-                const stopLoss = high - (range * FIB_786);  // 78.6% retracement (below deepest support)
+                // Stop Loss: Below Support 3 with 1-2.5% margin for safety
+                const stopLossMargin = 0.02; // 2% margin below Support 3
+                const stopLoss = support3 * (1 - stopLossMargin);
                 
-                // Target for R/R calculation: Above current price
-                const target = high + (range * 0.5);  // Target above high
+                // Target for R/R calculation: Above current price (aiming for high or beyond)
+                const target = high;  // Target at recent high
                 
                 return {
                     type: 'SUPPORT',
@@ -1989,16 +1990,17 @@ function getHTML() {
                 // SELL: Resistance levels above current price
                 // For spot trading, resistance levels should be above current price for selling opportunities
                 // Resistance 1 is closest to current price (lowest resistance)
-                // Resistance 2 is middle level
-                // Resistance 3 is highest level
+                // Resistance 2 is middle level (38.2% Fib)
+                // Resistance 3 is highest level (61.8% Fib)
                 
-                // Calculate resistances above current price using Fibonacci extension from low
-                const resistance1 = low + (range * FIB_236);  // Closest to current (23.6% from low)
-                const resistance2 = low + (range * FIB_382);  // Middle level (38.2% from low)
-                const resistance3 = low + (range * FIB_618);  // Highest level (61.8% from low)
+                // Calculate resistances using Fibonacci extension from low
+                const resistance1 = last;  // Current price as Resistance 1
+                const resistance2 = low + (range * FIB_382);  // 38.2% from low (middle level)
+                const resistance3 = low + (range * FIB_618);  // 61.8% from low (highest level)
                 
-                // Take Profit: Above Resistance 3
-                const takeProfit = low + (range * FIB_786);  // 78.6% from low (above highest resistance)
+                // Take Profit: Above Resistance 3 to ensure profitability
+                const takeProfitMargin = 0.02; // 2% above Resistance 3
+                const takeProfit = resistance3 * (1 + takeProfitMargin);
                 
                 return {
                     type: 'RESISTANCE',
@@ -2006,7 +2008,7 @@ function getHTML() {
                     level2: resistance2,
                     level3: resistance3,
                     stopLoss: takeProfit,  // For SELL signals, this field holds Take Profit value
-                    target: low - (range * 0.2)  // Target for R/R calculation
+                    target: takeProfit  // Target is take profit level
                 };
             }
         }
@@ -2034,12 +2036,14 @@ function getHTML() {
                     { label: 'Resistance 3 (Fib 61.8%)', value: fib.level3 }
                 ];
                 
-                // For SELL: Take Profit is above resistance levels
+                // For SELL in spot trading:
+                // Entry: Current price (selling now)
+                // Take Profit: Above Resistance 3 (stored in stopLoss field)
+                // Risk: Distance from entry to Resistance 3 (if price goes up)
+                // Reward: Distance from Take Profit to entry (profit when selling)
                 const takeProfit = fib.stopLoss; // Take profit stored in stopLoss field for SELL
-                // Risk is distance from current price down to target (assuming short position in spot)
-                // For spot SELL, we assume selling at current and rebuying lower
-                const risk = Math.abs(fib.level3 - last); // Distance to resistance 3
-                const reward = Math.abs(last - takeProfit); // Distance from current to take profit
+                const risk = Math.abs(fib.level3 - last); // Risk if price goes up to Resistance 3
+                const reward = Math.abs(takeProfit - last); // Reward from current to take profit
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
                 
             } else if (signal.type === 'BUY') {
@@ -2049,12 +2053,15 @@ function getHTML() {
                     { label: 'Support 3 (Fib 61.8%)', value: fib.level3 }
                 ];
                 
-                // For BUY: Target is above current price (use the stored target)
+                // For BUY in spot trading:
+                // Entry: Current price (buying now)
+                // Target: Recent high
+                // Stop Loss: Below Support 3 with margin
+                // Risk: Distance from entry to stop loss
+                // Reward: Distance from entry to target
                 const target = fib.target;
-                // Risk is distance from entry to stop loss
-                const risk = Math.abs(last - fib.stopLoss);
-                // Reward is distance from entry to target
-                const reward = Math.abs(target - last);
+                const risk = Math.abs(last - fib.stopLoss); // Risk if price drops to stop loss
+                const reward = Math.abs(target - last); // Reward if price reaches target
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
             }
             
@@ -2158,20 +2165,20 @@ function getHTML() {
             if (signal.type === 'SELL') {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🔴 Resistance 1: \${formatPrice(targetData.targets[0].value)}<br>
-                        🔴 Resistance 2 (Fib 38.2%): \${formatPrice(targetData.targets[1].value)}<br>
-                        🔴 Resistance 3 (Fib 61.8%): \${formatPrice(targetData.targets[2].value)}<br>
-                        💰 Take Profit: \${formatPrice(targetData.stopLoss)}<br>
+                        🔴 Resistance 1: \${formatSupportResistance(targetData.targets[0].value)}<br>
+                        🔴 Resistance 2 (Fib 38.2%): \${formatSupportResistance(targetData.targets[1].value)}<br>
+                        🔴 Resistance 3 (Fib 61.8%): \${formatSupportResistance(targetData.targets[2].value)}<br>
+                        💰 Take Profit: \${formatSupportResistance(targetData.stopLoss)}<br>
                         💎 R/R: 1:\${targetData.riskReward}
                     </div>
                 \`;
             } else {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🟢 Support 1: \${formatPrice(targetData.targets[0].value)}<br>
-                        🟢 Support 2 (Fib 38.2%): \${formatPrice(targetData.targets[1].value)}<br>
-                        🟢 Support 3 (Fib 61.8%): \${formatPrice(targetData.targets[2].value)}<br>
-                        🛑 Stop Loss: \${formatPrice(targetData.stopLoss)}<br>
+                        🟢 Support 1: \${formatSupportResistance(targetData.targets[0].value)}<br>
+                        🟢 Support 2 (Fib 38.2%): \${formatSupportResistance(targetData.targets[1].value)}<br>
+                        🟢 Support 3 (Fib 61.8%): \${formatSupportResistance(targetData.targets[2].value)}<br>
+                        🛑 Stop Loss: \${formatSupportResistance(targetData.stopLoss)}<br>
                         💎 R/R: 1:\${targetData.riskReward}
                     </div>
                 \`;
@@ -2302,8 +2309,6 @@ function getHTML() {
             // Save search box values before refresh
             const searchValues = {
                 searchBox: document.getElementById('searchBox')?.value || '',
-                searchGainers: document.getElementById('searchGainers')?.value || '',
-                searchLosers: document.getElementById('searchLosers')?.value || '',
                 searchVolume: document.getElementById('searchVolume')?.value || '',
                 searchBuySignals: document.getElementById('searchBuySignals')?.value || '',
                 searchSellSignals: document.getElementById('searchSellSignals')?.value || ''
@@ -2312,8 +2317,6 @@ function getHTML() {
             // Save scroll positions to prevent jump during refresh
             const scrollPositions = {
                 allMarkets: document.querySelector('#allMarkets .table-wrapper')?.scrollTop || 0,
-                gainers: document.querySelector('#gainers .table-wrapper')?.scrollTop || 0,
-                losers: document.querySelector('#losers .table-wrapper')?.scrollTop || 0,
                 volume: document.querySelector('#volume .table-wrapper')?.scrollTop || 0,
                 buySignals: document.querySelector('#buySignalsTable')?.closest('.table-wrapper')?.scrollTop || 0,
                 sellSignals: document.querySelector('#sellSignalsTable')?.closest('.table-wrapper')?.scrollTop || 0
@@ -2340,15 +2343,11 @@ function getHTML() {
             
             // Restore search box values after refresh
             const searchBoxEl = document.getElementById('searchBox');
-            const searchGainersEl = document.getElementById('searchGainers');
-            const searchLosersEl = document.getElementById('searchLosers');
             const searchVolumeEl = document.getElementById('searchVolume');
             const searchBuySignalsEl = document.getElementById('searchBuySignals');
             const searchSellSignalsEl = document.getElementById('searchSellSignals');
             
             if (searchBoxEl) searchBoxEl.value = searchValues.searchBox;
-            if (searchGainersEl) searchGainersEl.value = searchValues.searchGainers;
-            if (searchLosersEl) searchLosersEl.value = searchValues.searchLosers;
             if (searchVolumeEl) searchVolumeEl.value = searchValues.searchVolume;
             if (searchBuySignalsEl) searchBuySignalsEl.value = searchValues.searchBuySignals;
             if (searchSellSignalsEl) searchSellSignalsEl.value = searchValues.searchSellSignals;
@@ -2364,15 +2363,11 @@ function getHTML() {
             // Restore scroll positions immediately after DOM update
             requestAnimationFrame(() => {
                 const allMarketsWrapper = document.querySelector('#allMarkets .table-wrapper');
-                const gainersWrapper = document.querySelector('#gainers .table-wrapper');
-                const losersWrapper = document.querySelector('#losers .table-wrapper');
                 const volumeWrapper = document.querySelector('#volume .table-wrapper');
                 const buySignalsWrapper = document.querySelector('#buySignalsTable')?.closest('.table-wrapper');
                 const sellSignalsWrapper = document.querySelector('#sellSignalsTable')?.closest('.table-wrapper');
                 
                 if (allMarketsWrapper) allMarketsWrapper.scrollTop = scrollPositions.allMarkets;
-                if (gainersWrapper) gainersWrapper.scrollTop = scrollPositions.gainers;
-                if (losersWrapper) losersWrapper.scrollTop = scrollPositions.losers;
                 if (volumeWrapper) volumeWrapper.scrollTop = scrollPositions.volume;
                 if (buySignalsWrapper) buySignalsWrapper.scrollTop = scrollPositions.buySignals;
                 if (sellSignalsWrapper) sellSignalsWrapper.scrollTop = scrollPositions.sellSignals;
@@ -2499,14 +2494,14 @@ function getHTML() {
             
             // Fibonacci levels
             if (signal.type === 'BUY') {
-                techList.push(\`<div class="tech-item">Fib 0% (Support 1): \${formatPrice(fib.level1)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 38.2% (Support 2): \${formatPrice(fib.level2)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 61.8% (Support 3): \${formatPrice(fib.level3)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 0% (Support 1): \${formatSupportResistance(fib.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 38.2% (Support 2): \${formatSupportResistance(fib.level2)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 61.8% (Support 3): \${formatSupportResistance(fib.level3)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib Position: Near Support</div>\`);
             } else {
-                techList.push(\`<div class="tech-item">Fib 0% (Resistance 1): \${formatPrice(fib.level1)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 38.2% (Resistance 2): \${formatPrice(fib.level2)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 61.8% (Resistance 3): \${formatPrice(fib.level3)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 0% (Resistance 1): \${formatSupportResistance(fib.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 38.2% (Resistance 2): \${formatSupportResistance(fib.level2)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 61.8% (Resistance 3): \${formatSupportResistance(fib.level3)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib Position: Near Resistance</div>\`);
             }
             
@@ -3153,6 +3148,19 @@ function getHTML() {
                     maximumFractionDigits: 8
                 }).format(value);
             }
+        }
+        
+        // Format Support/Resistance levels without decimals for proper Rupiah formatting
+        function formatSupportResistance(value) {
+            if (!value || value === 0) return 'Rp 0';
+            
+            // Always format without decimals for Support/Resistance levels
+            return new Intl.NumberFormat('id-ID', { 
+                style: 'currency', 
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(value);
         }
         
         function formatVolume(value) {
