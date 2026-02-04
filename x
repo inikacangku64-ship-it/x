@@ -87,13 +87,15 @@ async function getMarketData() {
       return { ...ticker, signals };
     });
     
+    // Top Gainers: Only include tokens with high volume, sorted by volume descending
     const topGainers = [...tickersWithSignals]
-      .filter(t => t.priceChangePercent > 0)
-      .sort((a, b) => b.priceChangePercent - a.priceChangePercent);
+      .filter(t => t.priceChangePercent > 0 && t.volume > avgVolume)
+      .sort((a, b) => b.volume - a.volume);
     
+    // Top Losers: Only include tokens with low volume, sorted by volume ascending
     const topLosers = [...tickersWithSignals]
-      .filter(t => t.priceChangePercent < 0)
-      .sort((a, b) => a.priceChangePercent - b.priceChangePercent);
+      .filter(t => t.priceChangePercent < 0 && t.volume < avgVolume)
+      .sort((a, b) => a.volume - b.volume);
     
     const topVolume = [...tickersWithSignals]
       .filter(t => t.volume > 0)
@@ -2022,13 +2024,10 @@ function getHTML() {
         // Calculate Fibonacci Retracement with proper timeframe multipliers
         function calculateFibonacciRetracement(high, low, last, signalType, timeframe) {
             // Fibonacci Levels
-            const FIB_LEVELS = {
-                236: 0.236,
-                382: 0.382,
-                500: 0.500,
-                618: 0.618,
-                786: 0.786
-            };
+            const FIB_0 = 0.0;
+            const FIB_382 = 0.382;
+            const FIB_618 = 0.618;
+            const FIB_1000 = 1.0;
             
             // Timeframe multiplier untuk range
             const tfMultiplier = {
@@ -2041,37 +2040,46 @@ function getHTML() {
             const range = (high - low) * multiplier;
             
             if (signalType === 'BUY') {
-                // Uptrend: Retracement dari High ke Low
-                const fib236 = high - (range * FIB_LEVELS[236]);
-                const fib382 = high - (range * FIB_LEVELS[382]);
-                const fib618 = high - (range * FIB_LEVELS[618]);
+                // BUY: Support levels from high retracing down
+                // Support 1: Based on Fibonacci Level 0% (at high, minimal retracement)
+                // Support 2: Based on Fibonacci Level 38.2% (38.2% retracement from high)
+                // Support 3: Based on Fibonacci Level 61.8% (61.8% retracement from high)
+                const support1 = high - (range * FIB_0);     // 0% retracement = high
+                const support2 = high - (range * FIB_382);   // 38.2% retracement
+                const support3 = high - (range * FIB_618);   // 61.8% retracement
                 
-                // Sort descending (S1 > S2 > S3)
-                let supports = [fib236, fib382, fib618].sort((a, b) => b - a);
+                // Stop Loss: Below Support 3 (deepest support level)
+                const stopLoss = support3 - (range * 0.05);
                 
                 return {
                     type: 'SUPPORT',
-                    level1: supports[0],
-                    level2: supports[1],
-                    level3: supports[2],
-                    stopLoss: low * (1 - (0.02 * multiplier))
+                    level1: support1,
+                    level2: support2,
+                    level3: support3,
+                    stopLoss: stopLoss
                 };
                 
             } else { // SELL
-                // Downtrend: Retracement dari Low ke High
-                const fib236 = low + (range * FIB_LEVELS[236]);
-                const fib382 = low + (range * FIB_LEVELS[382]);
-                const fib618 = low + (range * FIB_LEVELS[618]);
+                // SELL: Resistance levels from low extending up
+                // For SELL signals, we look for resistance on the way down
+                // The requirements show R1 < R2 < R3, meaning ascending order
+                // Resistance 1: Lowest resistance (closer to current price)
+                // Resistance 2: 38.2% level
+                // Resistance 3: 61.8% level
+                // Take Profit is above R3
+                const resistance1 = low + (range * FIB_0);    // Starting from low (0% = low)
+                const resistance2 = low + (range * FIB_382);  // 38.2% from low
+                const resistance3 = low + (range * FIB_618);  // 61.8% from low
                 
-                // Sort ascending (R1 < R2 < R3)
-                let resistances = [fib236, fib382, fib618].sort((a, b) => a - b);
+                // Take Profit: Above Resistance 3 (extends beyond highest resistance)
+                const takeProfit = resistance3 + (range * 0.05);
                 
                 return {
                     type: 'RESISTANCE',
-                    level1: resistances[0],
-                    level2: resistances[1],
-                    level3: resistances[2],
-                    stopLoss: high * (1 + (0.02 * multiplier))
+                    level1: resistance1,
+                    level2: resistance2,
+                    level3: resistance3,
+                    stopLoss: takeProfit  // For SELL signals, this field holds Take Profit value
                 };
             }
         }
@@ -2095,11 +2103,11 @@ function getHTML() {
             if (signal.type === 'SELL') {
                 result.targets = [
                     { label: 'Resistance 1', value: fib.level1 },
-                    { label: 'Resistance 2', value: fib.level2 },
-                    { label: 'Resistance 3', value: fib.level3 }
+                    { label: 'Resistance 2 (Fib 38.2%)', value: fib.level2 },
+                    { label: 'Resistance 3 (Fib 61.8%)', value: fib.level3 }
                 ];
                 
-                const target = fib.level2;
+                const target = fib.level3;
                 const risk = Math.abs(last - fib.stopLoss);
                 const reward = Math.abs(target - last);
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
@@ -2107,11 +2115,11 @@ function getHTML() {
             } else if (signal.type === 'BUY') {
                 result.targets = [
                     { label: 'Support 1', value: fib.level1 },
-                    { label: 'Support 2', value: fib.level2 },
-                    { label: 'Support 3', value: fib.level3 }
+                    { label: 'Support 2 (Fib 38.2%)', value: fib.level2 },
+                    { label: 'Support 3 (Fib 61.8%)', value: fib.level3 }
                 ];
                 
-                const target = last + (last - fib.level2);
+                const target = last + (last - fib.level3);
                 const risk = Math.abs(last - fib.stopLoss);
                 const reward = Math.abs(target - last);
                 result.riskReward = risk > 0 ? (reward / risk).toFixed(1) : 0;
@@ -2217,21 +2225,21 @@ function getHTML() {
             if (signal.type === 'SELL') {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🔴 Resistance 1: Rp 226.000<br>
-                        🔴 Resistance 2: Rp 231.000<br>
-                        🔴 Resistance 3: Rp 236.000<br>
-                        💰 Take Profit: Rp 240.000<br>
-                        💎 R/R: 1:1.7
+                        🔴 Resistance 1: \${formatPrice(targetData.targets[0].value)}<br>
+                        🔴 Resistance 2 (Fib 38.2%): \${formatPrice(targetData.targets[1].value)}<br>
+                        🔴 Resistance 3 (Fib 61.8%): \${formatPrice(targetData.targets[2].value)}<br>
+                        💰 Take Profit: \${formatPrice(targetData.stopLoss)}<br>
+                        💎 R/R: 1:\${targetData.riskReward}
                     </div>
                 \`;
             } else {
                 return \`
                     <div style="font-size:11px;line-height:1.4;">
-                        🟢 Support 1: Rp 410.000<br>
-                        🟢 Support 2 (Fib 38.2%): Rp 405.000<br>
-                        🟢 Support 3 (Fib 61.8%): Rp 400.000<br>
-                        🛑 Stop Loss: Rp 395.000<br>
-                        💎 R/R: 1:3.7
+                        🟢 Support 1: \${formatPrice(targetData.targets[0].value)}<br>
+                        🟢 Support 2 (Fib 38.2%): \${formatPrice(targetData.targets[1].value)}<br>
+                        🟢 Support 3 (Fib 61.8%): \${formatPrice(targetData.targets[2].value)}<br>
+                        🛑 Stop Loss: \${formatPrice(targetData.stopLoss)}<br>
+                        💎 R/R: 1:\${targetData.riskReward}
                     </div>
                 \`;
             }
@@ -2463,18 +2471,91 @@ function getHTML() {
             const momentum = parseFloat(ind.momentum);
             const volumeRatio = parseFloat(ind.volumeRatio);
             const trend = ind.trend;
+            const volumeSpike = ind.volumeSpike;
+            const priceUp = ind.priceUp;
+            const priceDown = ind.priceDown;
             
             const signalsList = [];
             
-            // Display hardcoded signal values for demonstration
-            signalsList.push(\`<div class="signal-item neutral">📊 RSI: 66.9</div>\`);
-            signalsList.push(\`<div class="signal-item bearish">❌ StochRSI Overbought (94)</div>\`);
-            signalsList.push(\`<div class="signal-item bearish">❌ BB: Near Upper</div>\`);
-            signalsList.push(\`<div class="signal-item bullish">✅ MACD: Bullish (+4)</div>\`);
-            signalsList.push(\`<div class="signal-item bullish">🔥 Volume: 6.8x Spike + Price Up</div>\`);
-            signalsList.push(\`<div class="signal-item bullish">↗️ Momentum: +5.6%</div>\`);
+            // 1. RSI - Current RSI value
+            const rsiClass = rsi < 30 ? 'bullish' : rsi > 70 ? 'bearish' : 'neutral';
+            signalsList.push(\`<div class="signal-item \${rsiClass}">📊 RSI: \${rsi.toFixed(1)}</div>\`);
+            
+            // 2. Stochastic RSI - Indicate overbought/oversold
+            let stochStatus = '';
+            let stochClass = 'neutral';
+            if (stochRSI > 80) {
+                stochStatus = \`❌ StochRSI Overbought (\${stochRSI.toFixed(0)})\`;
+                stochClass = 'bearish';
+            } else if (stochRSI < 20) {
+                stochStatus = \`✅ StochRSI Oversold (\${stochRSI.toFixed(0)})\`;
+                stochClass = 'bullish';
+            } else {
+                stochStatus = \`➖ StochRSI: \${stochRSI.toFixed(0)}\`;
+                stochClass = 'neutral';
+            }
+            signalsList.push(\`<div class="signal-item \${stochClass}">\${stochStatus}</div>\`);
+            
+            // 3. Bollinger Bands - Position against upper/lower bounds
+            let bbStatus = '';
+            let bbClass = 'neutral';
+            if (bbPosition === 'OVERSOLD') {
+                bbStatus = '❌ BB: Near Lower';
+                bbClass = 'bullish';
+            } else if (bbPosition === 'OVERBOUGHT') {
+                bbStatus = '❌ BB: Near Upper';
+                bbClass = 'bearish';
+            } else if (bbPosition === 'ABOVE_MID') {
+                bbStatus = '➖ BB: Above Mid';
+                bbClass = 'neutral';
+            } else if (bbPosition === 'BELOW_MID') {
+                bbStatus = '➖ BB: Below Mid';
+                bbClass = 'neutral';
+            } else {
+                bbStatus = '➖ BB: Neutral';
+                bbClass = 'neutral';
+            }
+            signalsList.push(\`<div class="signal-item \${bbClass}">\${bbStatus}</div>\`);
+            
+            // 4. MACD - Bullish or bearish trend
+            const macdClass = macd > 0 ? 'bullish' : macd < 0 ? 'bearish' : 'neutral';
+            const macdTrend = macd > 0 ? 'Bullish' : macd < 0 ? 'Bearish' : 'Neutral';
+            const macdIcon = macd > 0 ? '✅' : macd < 0 ? '❌' : '➖';
+            signalsList.push(\`<div class="signal-item \${macdClass}">\${macdIcon} MACD: \${macdTrend} (\${macd > 0 ? '+' : ''}\${macd.toFixed(0)})</div>\`);
+            
+            // 5. Volume - Detect volume spikes
+            let volumeStatus = '';
+            let volumeClass = 'neutral';
+            if (volumeSpike) {
+                if (priceUp) {
+                    volumeStatus = \`🔥 Volume: \${volumeRatio.toFixed(1)}x Spike + Price Up\`;
+                    volumeClass = 'bullish';
+                } else if (priceDown) {
+                    volumeStatus = \`🔥 Volume: \${volumeRatio.toFixed(1)}x Spike + Price Down\`;
+                    volumeClass = 'bearish';
+                } else {
+                    volumeStatus = \`🔥 Volume: \${volumeRatio.toFixed(1)}x Spike\`;
+                    volumeClass = 'neutral';
+                }
+            } else {
+                volumeStatus = \`📊 Volume: \${volumeRatio.toFixed(1)}x Avg\`;
+                volumeClass = 'neutral';
+            }
+            signalsList.push(\`<div class="signal-item \${volumeClass}">\${volumeStatus}</div>\`);
+            
+            // 6. Momentum - Calculate momentum change as a percentage
+            const momentumClass = momentum > 0 ? 'bullish' : momentum < 0 ? 'bearish' : 'neutral';
+            const momentumIcon = momentum > 0 ? '↗️' : momentum < 0 ? '↘️' : '➡️';
+            signalsList.push(\`<div class="signal-item \${momentumClass}">\${momentumIcon} Momentum: \${momentum > 0 ? '+' : ''}\${momentum.toFixed(1)}%</div>\`);
+            
+            // 7. Fibonacci retracement - Used for Target/SL/Risk calculation
             signalsList.push(\`<div class="signal-item neutral">📐 Fib: Target/SL/Risk</div>\`);
-            signalsList.push(\`<div class="signal-item bullish">📈 Trend: Uptrend</div>\`);
+            
+            // 8. Trend - Display trend
+            const trendClass = trend === 'UPTREND' ? 'bullish' : trend === 'DOWNTREND' ? 'bearish' : 'neutral';
+            const trendIcon = trend === 'UPTREND' ? '📈' : trend === 'DOWNTREND' ? '📉' : '➖';
+            const trendText = trend === 'UPTREND' ? 'Uptrend' : trend === 'DOWNTREND' ? 'Downtrend' : 'Sideways';
+            signalsList.push(\`<div class="signal-item \${trendClass}">\${trendIcon} Trend: \${trendText}</div>\`);
             
             return \`<div class="signals-list">\${signalsList.join('')}</div>\`;
         }
@@ -2495,14 +2576,14 @@ function getHTML() {
             
             // Fibonacci levels
             if (signal.type === 'BUY') {
-                techList.push(\`<div class="tech-item">Fib 23.6%: \${formatPrice(fib.level1)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 38.2%: \${formatPrice(fib.level2)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 61.8%: \${formatPrice(fib.level3)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 0% (Support 1): \${formatPrice(fib.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 38.2% (Support 2): \${formatPrice(fib.level2)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 61.8% (Support 3): \${formatPrice(fib.level3)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib Position: Near Support</div>\`);
             } else {
-                techList.push(\`<div class="tech-item">Fib 23.6%: \${formatPrice(fib.level1)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 38.2%: \${formatPrice(fib.level2)}</div>\`);
-                techList.push(\`<div class="tech-item">Fib 61.8%: \${formatPrice(fib.level3)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 0% (Resistance 1): \${formatPrice(fib.level1)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 38.2% (Resistance 2): \${formatPrice(fib.level2)}</div>\`);
+                techList.push(\`<div class="tech-item">Fib 61.8% (Resistance 3): \${formatPrice(fib.level3)}</div>\`);
                 techList.push(\`<div class="tech-item">Fib Position: Near Resistance</div>\`);
             }
             
